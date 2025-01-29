@@ -37,3 +37,6 @@ ModelOutput/
 
 # Ignore .vscode folder as well
 .vscode/
+
+# For now - ignore Project.toml file - easier when switching between cluster and local PC
+Project.toml

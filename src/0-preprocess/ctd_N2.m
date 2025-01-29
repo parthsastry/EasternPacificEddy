@@ -63,7 +63,7 @@ s40_mini.depth = s40.ctd.depSM(1:ind);
 s40_mini.pressure = s40.ctd.prDM(1:ind);
 [s40_mini.N2(2:ind,1),dd]= gsw_Nsquared(s40.ctd.Absolute_Salinity(1:ind)',s40.ctd.Conservative_Temperature(1:ind)',s40.ctd.prDM(1:ind)',mean(s40.ctd.latitude(1:ind),'omitnan'));
 s40_mini.N2(1,1)=NaN;
-clear ind dd diffΩ
+clear ind dd diff
 
 
 
