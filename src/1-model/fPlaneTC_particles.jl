@@ -123,7 +123,7 @@ W = zeros(Nx, Ny, Nz)
 #    Background Buoyancy/Stratification Field     #
 # =============================================== #
 
-file = matread("CTD_data/smoothed_N2_bouyancy.mat")
+file = matread("../../data/processed/smoothed_N2_bouyancy.mat")
 
 Z_bkg = range(-1000.0, stop=0, step=1.0)
 N²_bkg = reverse(vec(file["N2"]))

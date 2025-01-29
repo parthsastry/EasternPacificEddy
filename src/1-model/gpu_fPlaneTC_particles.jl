@@ -1,5 +1,5 @@
 using Pkg
-# Pkg.activate(Oceananigans-Env+Setup)
+Pkg.activate(".")
 
 Pkg.instantiate()
 
@@ -15,53 +15,54 @@ using NCDatasets
 using Interpolations
 using MAT
 using CUDA
+using Adapt
 
 # sw_SurfaceVortex = true # surface (true) or subsurface (false) vortex
-sw_NonUniformGrid = true # non-uniform (true) or uniform (false) z-grid
-sw_UseSpongeLayer = true # damping circular sponge layer (true) or not (false)
+sw_NonUniformGrid = true; # non-uniform (true) or uniform (false) z-grid
+sw_UseSpongeLayer = true; # damping circular sponge layer (true) or not (false)
 
 # ============================= #
 #        Grid Parameters        #
 # ============================= #
 
-const Nx = 256 # x grid points
-const Ny = 256 # y grid points
-const Nz = 64  # z grid points
+const Nx = 256; # x grid points
+const Ny = 256; # y grid points
+const Nz = 64;  # z grid points
 
-const L = 100kilometers # Half-eddy length scale
-const H = 100meters     # Half-eddy depth scale
+const L = 100kilometers; # Half-eddy length scale
+const H = 100meters;     # Half-eddy depth scale
 
-Lx = 10*L      # zonal domain width
-Ly = 10*L      # meridional domain width
-Lz = 10*H      # vertical domain height
+Lx = 10*L;      # zonal domain width
+Ly = 10*L;      # meridional domain width
+Lz = 10*H;      # vertical domain height
 
 # =============================== #
 #           Grid Setup            #
 # =============================== #
 
-dx = Lx / Nx   # zonal grid spacing
-dy = Ly / Ny   # meridional grid spacing
+dx = Lx / Nx;   # zonal grid spacing
+dy = Ly / Ny;   # meridional grid spacing
 # NOTE - this is some sort of average grid spacing in the case of non-uniform z-grid spacing
-dz = Lz / Nz   # vertical grid spacing
+dz = Lz / Nz;   # vertical grid spacing
 
 # NOTE - this is some sort of average aspect ratio in the case of non-uniform z-grid spacing
-δ = dx/dz      # aspect ratio
+δ = dx/dz;      # aspect ratio
 
-println("dx = ", string(dx), " m")
-println("δ = ", string(δ))
+println("dx = ", string(dx), " m");
+println("δ = ", string(δ));
 
-xGrid = (-Lx/2, Lx/2)
-yGrid = (-Ly/2, Ly/2)
+xGrid = (-Lx/2, Lx/2);
+yGrid = (-Ly/2, Ly/2);
 
 if sw_NonUniformGrid
     println("Using a non-uniform hyperbolically stretched z-grid")
     # Hyperbolically Stretched near surface
-    σ = 2.0 # stretching parameter
+    σ = 2.0; # stretching parameter
     hyperbolically_spaced_faces(k) = - Lz * (1 - tanh(σ * (k - 1) / Nz) / tanh(σ));
-    zGrid = hyperbolically_spaced_faces
+    zGrid = hyperbolically_spaced_faces;
 else
     println("Using a uniform z-grid")
-    zGrid = (-Lz, 0.0)
+    zGrid = (-Lz, 0.0);
 end
 
 grid = RectilinearGrid(
@@ -72,72 +73,76 @@ grid = RectilinearGrid(
     topology = (
         Oceananigans.Grids.Periodic, Oceananigans.Grids.Periodic, Oceananigans.Grids.Bounded
     )
-)
+);
 
-xᶜ = CuArray([-(Lx/2 + dx/2) + i*dx for i in 1:Nx])
-yᶜ = CuArray([-(Ly/2 + dy/2) + i*dy for i in 1:Ny])
-zᶜ = CuArray([-(Lz + dz/2) + i*dz for i in 1:Nz])
-Xp, Yp, Zp = ndgrid(xᶜ, yᶜ, zᶜ)
+xᶜ = CuArray([-(Lx/2 + dx/2) + i*dx for i in 1:Nx]);
+yᶜ = CuArray([-(Ly/2 + dy/2) + i*dy for i in 1:Ny]);
+zᶜ = CuArray([mean((hyperbolically_spaced_faces(i), hyperbolically_spaced_faces(i+1))) for i in 1:Nz]);
+
+Xp = CUDA.ones(Nx, Ny, Nz).*xᶜ;
+Yp = CUDA.ones(Nx, Ny, Nz).*reshape(yᶜ, (1, Ny));
+Zp = CUDA.ones(Nx, Ny, Nz).*reshape(zᶜ, (1, 1, Nz));
 
 # =============================== #
 #        Eddy parameters          #
 # =============================== #
 
-const α = 2.0                     # Eddy decay exponent (\alpha = 2 => Gaussian)
-const η = 0.18meters              # Eddy amplitude at center (roughly maximum possible for non-negative buoyancy)
+const α = 2.0;                     # Eddy decay exponent (\alpha = 2 => Gaussian)
+const η = 0.18meters;              # Eddy amplitude at center (roughly maximum possible for non-negative buoyancy)
 
-const g = 9.807meters/second^2     # gravity
-const ρ₀ = 1020.5                 # kg m⁻³ reference surface density - taken from CTD data
+const g = 9.807meters/second^2;     # gravity
+const ρ₀ = 1020.5;                 # kg m⁻³ reference surface density - taken from CTD data
 
-const p₀ = ρ₀*g*η                 # reference pressure
+const p₀ = ρ₀*g*η;                 # reference pressure
 
-coriolis = FPlane(latitude=15)
-f₀ = coriolis.f
+coriolis = FPlane(latitude=15);
+const f₀ = coriolis.f;
 
 # =============================== #
 #        Initial conditions       #
 # =============================== #
 
-Zscale = H
+const Zscale = H;
 
-Znorm = Zp ./ Zscale
-Rnorm = sqrt.(Xp.^2 + Yp.^2) ./ L
+Znorm = Zp ./ Zscale;
+Rnorm = sqrt.(Xp.^2 + Yp.^2) ./ L;
 
-χ = exp.((-Rnorm.^α) .+ (-Znorm.^α)) # 3D Gaussian
-p = p₀ .* deepcopy(χ)                # pressure field
-ϕ = angle.(Xp .+ im*Yp)              # azimuthal angle
+χ = exp.((-Rnorm.^α) .+ (-Znorm.^α)); # 3D Gaussian
+p = p₀ .* χ;                          # pressure field
+ϕ = angle.(Xp .+ im*Yp);              # azimuthal angle
 
 # Mahdinia vortex
 
-Vᵩ = f₀ .* Rnorm .* L ./ 2 .* (-1 .+ sqrt.(1 .- 4 .* α .* p ./(ρ₀ .* f₀.^2 .* L^2))) # azimuthal velocity
-b_anom = -α .* p .* Znorm.^α ./ (ρ₀ .* Zp) # buoyancy anomaly field
+Vᵩ = f₀ .* Rnorm .* L ./ 2 .* (-1 .+ sqrt.(1 .- 4 .* α .* p ./(ρ₀ .* f₀.^2 .* L^2))); # azimuthal velocity
+b_anom = -α .* p .* Znorm.^α ./ (ρ₀ .* Zp); # buoyancy anomaly field
 
-Vₓ = -real.(Vᵩ .* sin.(ϕ))
+Vₓ = -real.(Vᵩ .* sin.(ϕ));
 Vᵧ = real.(Vᵩ .* cos.(ϕ))
 
 # Initialize velocity fields (can add background flow here if needed)
-U = copy(Vₓ)
-V = copy(Vᵧ)
-W = zeros(Nx, Ny, Nz)
+U = copy(Vₓ);
+V = copy(Vᵧ);
+W = CUDA.zeros(Nx, Ny, Nz);
 
 # =============================================== #
 #    Background Buoyancy/Stratification Field     #
 # =============================================== #
 
-file = matread("CTD_data/smoothed_N2_bouyancy.mat")
+file = matread("../../data/processed/smoothed_N2_bouyancy.mat");
 
-Z_bkg = range(-1000.0, stop=0, step=1.0)
-N²_bkg = reverse(vec(file["N2"]))
-b_bkg = reverse(vec(file["buoyancy"]))
+Z_bkg = range(-1000.0, stop=0, step=1.0);
+N²_bkg = reverse(vec(file["N2"]));
+b_bkg = reverse(vec(file["buoyancy"]));
 
 # Bottom N² boundary condition
-bottom_N² = N²_bkg[1]
+bottom_N² = @CUDA.allowscalar(N²_bkg[1]);
 
 # Interpolate background buoyancy to grid
-b_interp = linear_interpolation(Z_bkg, b_bkg)
-b_bkg = b_interp.(Zp)
+b_itp = linear_interpolation(Z_bkg, b_bkg);
+b_cuitp = adapt(CuArray{Float64}, b_itp);
+b_bkg = b_cuitp.(Zp);
 
-b_tot = b_anom .+ b_bkg
+b_tot = b_anom .+ b_bkg;
 
 # ================================ #
 #       Boundary Conditions        #
@@ -145,53 +150,53 @@ b_tot = b_anom .+ b_bkg
 
 # Buoyancy
 
-const Qflux = 0.0              # W m⁻² heat flux
-const Cₚ = 3991.0              # J kg⁻¹ K⁻¹ specific heat capacity of seawater
-const EminusP = 0.0            # mm day⁻¹ evaporation minus precipitation
+const Qflux = 0.0;              # W m⁻² heat flux
+const Cₚ = 3991.0;              # J kg⁻¹ K⁻¹ specific heat capacity of seawater
+const EminusP = 0.0;            # mm day⁻¹ evaporation minus precipitation
 
 # Temperature Salinity at surface (taken from CTD data)
 
-const S₀ = 33.2801             # psu surface salinity
-const αₜ = 3.26e-4             # K⁻¹ thermal expansion coefficient
-const βₛ = 7.172e-4            # psu⁻¹ haline contraction coefficient
+const S₀ = 33.2801;             # psu surface salinity
+const αₜ = 3.26e-4;             # K⁻¹ thermal expansion coefficient
+const βₛ = 7.172e-4;            # psu⁻¹ haline contraction coefficient
 
 # Surface Buoyancy Flux (Heating and Precipitation)
 
-const Bflux_heat = Qflux / (ρ₀ * Cₚ) * (αₜ * g)  # m² s⁻³
-const Bflux_evap = EminusP *  (g * βₛ) * S₀      # m² s⁻³
+const Bflux_heat = Qflux / (ρ₀ * Cₚ) * (αₜ * g);  # m² s⁻³
+const Bflux_evap = EminusP *  (g * βₛ) * S₀;      # m² s⁻³
 
-const Bflux_tot = Bflux_heat + Bflux_evap
+const Bflux_tot = Bflux_heat + Bflux_evap;
 
 B_BCS = FieldBoundaryConditions(
     top = FluxBoundaryCondition(Bflux_tot),
     bottom = GradientBoundaryCondition(bottom_N²)
-)
+);
 
 # Velocity
 
-const U₁₀ = 0.001meters/second        # m s⁻² Wind Speed 10 meters above sea level
-const θwind = 270                     # Wind (to) direction (degrees), Clockwise from 0ᵒ - True North
-const u₁₀ = U₁₀ * cosd(90 - θwind)    # zonal wind component
-const v₁₀ = U₁₀ * sind(90 - θwind)    # meridional wind component
+const U₁₀ = 0.001meters/second;        # m s⁻² Wind Speed 10 meters above sea level
+const θwind = 270;                     # Wind (to) direction (degrees), Clockwise from 0ᵒ - True North
+const u₁₀ = U₁₀ * cosd(90 - θwind);    # zonal wind component
+const v₁₀ = U₁₀ * sind(90 - θwind);    # meridional wind component
 
-const C_D = 2.5e-3                    # Drag coefficient
-const ρₐ = 1.225                      # kg m⁻³ air density
+const C_D = 2.5e-3;                    # Drag coefficient
+const ρₐ = 1.225;                      # kg m⁻³ air density
 
-const τₓ = C_D * ρₐ * u₁₀ * abs(u₁₀)  # zonal wind stress
-const τᵧ = C_D * ρₐ * v₁₀ * abs(v₁₀)  # meridional wind stress
+const τₓ = C_D * ρₐ * u₁₀ * abs(u₁₀);  # zonal wind stress
+const τᵧ = C_D * ρₐ * v₁₀ * abs(v₁₀);  # meridional wind stress
 
 U_BCS = FieldBoundaryConditions(
     top = FluxBoundaryCondition(τₓ/ρ₀)
-)
+);
 V_BCS = FieldBoundaryConditions(
     top = FluxBoundaryCondition(τᵧ/ρ₀)
-)
+);
 
 # Oxygen Tracer Boundary Conditions (future implementation could involve steady subsurface oxygen supply)
 
 O2_BCS = FieldBoundaryConditions(
     top = FluxBoundaryCondition(0.0)
-)
+);
 
 # ================================= #
 #         Turbulent Closure         #
@@ -199,26 +204,26 @@ O2_BCS = FieldBoundaryConditions(
 
 # Anisotropic Diffusivity
 
-const κₕ = 2.0            # m² s⁻¹ horizontal diffusivity
-const νₕ = 2.0            # m² s⁻¹ horizontal viscosity
-const κᵥ = δ * κₕ * 0.01  # m² s⁻¹ vertical diffusivity
-const νᵥ = δ * νₕ * 0.01  # m² s⁻¹ vertical viscosity
+const κₕ = 2.0;            # m² s⁻¹ horizontal diffusivity
+const νₕ = 2.0;            # m² s⁻¹ horizontal viscosity
+const κᵥ = δ * κₕ * 0.01;  # m² s⁻¹ vertical diffusivity
+const νᵥ = δ * νₕ * 0.01;  # m² s⁻¹ vertical viscosity
 
 horizontal_diff_closure = HorizontalScalarDiffusivity(
     ν = νₕ,
     κ = κₕ
-)
+);
 vertical_diff_closure = VerticalScalarDiffusivity(
     VerticallyImplicitTimeDiscretization(),
     ν = νᵥ,
     κ = κᵥ
-)
+);
 
 # Potential AMD closure?
 
 # Turbulence coefficients (AMD)
-#ν = 1.0e-5 # diffusivity of momentum
-#κ = 1.0e-5 # diffusivity of density (or buoyancy)
+#const ν = 1.0e-5 # diffusivity of momentum
+#const κ = 1.0e-5 # diffusivity of density (or buoyancy)
 #ν = νh
 #κ = κh
 
@@ -227,57 +232,57 @@ vertical_diff_closure = VerticalScalarDiffusivity(
 closure = (
     horizontal_diff_closure,
     vertical_diff_closure
-)
+);
 
 # ================================ #
 #           Sponge Layer           #
 # ================================ #
 
 # damping timescale (taken from initial time step - τ = 20Δt)
-const tau = 5minutes
-const damp_rate = 1/tau
+const tau = 5minutes;
+const damp_rate = 1/tau;
 
-const Lr_sponge = 300.5kilometers  # sponge layer radial distance
-const Lz_sponge = 850meters        # sponge layer depth
+const Lr_sponge = 300.5kilometers;  # sponge layer radial distance
+const Lz_sponge = 850meters;        # sponge layer depth
 
-const Rwidth_sponge = 7kilometers  # sponge layer radial width
-const Zwidth_sponge = 10meters     # sponge layer z width
+const Rwidth_sponge = 7kilometers;  # sponge layer radial width
+const Zwidth_sponge = 10meters;     # sponge layer z width
 
 @inline mask_2D(x, y, z) = 0.5 .* (tanh.((sqrt.(x.^2 + y.^2) .+ Lr_sponge) ./ Rwidth_sponge) .- tanh.((sqrt.(x.^2 + y.^2) .- Lr_sponge) ./ Rwidth_sponge))
 @inline mask_Z(x, y, z) = 0.5 .* (tanh.((z .+ Lz_sponge) ./ Zwidth_sponge) .- tanh.((z .- Lz_sponge) ./ Zwidth_sponge))
 @inline mask_net(x, y, z) = 1 - mask_2D(x, y, z) .* mask_Z(x, y, z)
 
-const target_O2 = 0.0                     # mmol m⁻³
-const target_uvw = 0.0                    # m s⁻¹
+const target_O2 = 0.0;                     # mmol m⁻³
+const target_uvw = 0.0;                    # m s⁻¹
 @inline target_b(x, y, z, t) = b_interp.(z) # target buoyancy
 
 uvw_sponge = Relaxation(
     rate = damp_rate,
     mask = mask_net,
     target = target_uvw
-)
+);
 b_sponge = Relaxation(
     rate = damp_rate,
     mask = mask_net,
     target = target_b
-)
+);
 O2_sponge = Relaxation(
     rate = damp_rate,
     mask = mask_net,
     target = target_O2
-)
+);
 
 # ================================ #
 #       Lagrangian Particles       #
 # ================================ #
 
-N₀ = 11 # number of particles
+N₀ = 11; # number of particles
 
-x₀ = ones(Float64, N₀) .* 100kilometers
-y₀ = zeros(Float64, N₀)
-z₀ = [125.0:10.0:225.0;]
+x₀ = CUDA.ones(Float64, N₀) .* 100kilometers;
+y₀ = CUDA.zeros(Float64, N₀);
+z₀ = [125.0:10.0:225.0;];
 
-lagrangian_particles = LagrangianParticles(x=x₀, y=y₀, z=z₀)
+lagrangian_particles = LagrangianParticles(x=x₀, y=y₀, z=z₀);
 
 # ================================= #
 #            Model Setup            #
@@ -295,110 +300,112 @@ model = HydrostaticFreeSurfaceModel(
     forcing = (u = uvw_sponge, v = uvw_sponge, w = uvw_sponge, b = b_sponge, O2 = O2_sponge),
     boundary_conditions = (u = U_BCS, v = V_BCS, b = B_BCS, O2 = O2_BCS),
     free_surface = ImplicitFreeSurface()
-)
+);
 
 # ================================ #
 #      Set Initial Conditions      #
 # ================================ #
 
-u, v, w = model.velocities
-b = model.tracers.b
-O2 = model.tracers.O2
+u, v, w = model.velocities;
+b = model.tracers.b;
+O2 = model.tracers.O2;
 
-epsilon = 0.001
-u_perturbation = epsilon .* randn(size(u)...)
-v_perturbation = epsilon .* randn(size(v)...)
-w_perturbation = Lz/Lx .* epsilon .* randn(size(w)...)
-b_perturbation = epsilon .* randn(size(b)...)
+const epsilon = 0.001;
+u_perturbation = epsilon .* CUDA.randn(size(u)...) .* U;
+v_perturbation = epsilon .* CUDA.randn(size(v)...) .* V;
+w_perturbation = Lz/Lx .* epsilon .* CUDA.randn(size(w)...);
+b_perturbation = epsilon .* CUDA.randn(size(b)...);
 #O2_perturbation = epsilon .* randn(size(O2)...)
 
 println("Velocity array sizes - U: ", size(u), " V: ", size(v), " W: ", size(w))
 
-Uᵢ = U .+ u_perturbation
-Vᵢ = V .+ v_perturbation
+Uᵢ = U .+ u_perturbation;
+Vᵢ = V .+ v_perturbation;
 # NOTE - TODO - FIND OUT WHERE EXTRA DIMENSION IN w IS COMING FROM
-Wᵢ = 0.0 .+ w_perturbation
-bᵢ = b_tot.+ b_perturbation
+Wᵢ = 0.0 .+ w_perturbation;
+bᵢ = b_tot.+ b_perturbation;
 #O2ᵢ = O2 .+ O2_perturbation
 
-set!(model; b = bᵢ, u = Uᵢ, v = Vᵢ, w = Wᵢ)
+set!(model; b = bᵢ, u = Uᵢ, v = Vᵢ, w = Wᵢ);
 
 # ========================= #
 #         Run Setup         #
 # ========================= #
 
-simulation = Simulation(model, Δt = 10seconds, stop_time = 10days)
+simulation = Simulation(model, Δt = 10seconds, stop_time = 10days);
 wizard = TimeStepWizard(
     cfl = 1.0,
     max_change = 1.2,
     max_Δt = 1minute
-)
-simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
+);
+simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10));
 
 # Progress messaging
-using Printf
 progress_message(sim) = @printf(
     "Iteration: %04d, Simulation Time: %s, Simulation Δt: %s, max(|w|) = %.1e ms⁻¹, Wall Clock Time: %s\n",
     iteration(sim), prettytime(sim), prettytime(sim.Δt),
     maximum(abs.(sim.model.velocities.w)), prettytime(sim.run_wall_time)
-)
-simulation.callbacks[:progress] = Callback(progress_message, IterationInterval(60))
+);
+simulation.callbacks[:progress] = Callback(progress_message, IterationInterval(60));
 
 # ========================= #
 #      NetCDF Output        #
 # ========================= #
 
-outdir = "../ModelOutput/gpu_fPlaneTC_particles/"
+outdir = "../../output/gpu_fPlaneTC_particles/";
 
 if ~isdir(outdir)
-    mkdir(outdir)
+    mkdir(outdir);
 end
 
-u, v, w = model.velocities
-b = model.tracers.b
-O2 = model.tracers.O2
+u, v, w = model.velocities;
+b = model.tracers.b;
+O2 = model.tracers.O2;
 
 velocity = Dict(
     "u" => model.velocities.u,
     "v" => model.velocities.v,
     "w" => model.velocities.w
-)
+);
 
-filename_vel = string(outdir, "velocity.nc")
+filename_vel = string(outdir, "velocity.nc");
 simulation.output_writers[:velocity] = NetCDFOutputWriter(
     model, velocity, overwrite_existing = true,
     filename = filename_vel,
     indices = (:, :, :),
     schedule = TimeInterval(1hour)
-)
+);
 
 vorticity = Dict(
     "ζˣ" => @at((Center, Center, Center), ∂y(w)-∂z(v)),
     "ζʸ" => @at((Center, Center, Center), ∂z(u)-∂x(w)),
-    "ζᶻ" => @at((Center, Center, Center), ∂x(v)-∂y(u))
-)
+    "ζᶻ" => @at((Center, Center, Center), ∂x(v)-∂y(u)),
+    "(ζ.∇b)ˣ" => @at((Center, Center, Center), ∂x(b)*∂y(w) - ∂x(b)*∂z(v)),
+    "(ζ.∇b)ʸ" => @at((Center, Center, Center), ∂y(b)*∂z(u) - ∂y(b)*∂x(w)),
+    "(ζ.∇b)ᶻ" => @at((Center, Center, Center), ∂z(b)*∂x(v) - ∂z(b)*∂y(u))
+);
 
-filename_vort = string(outdir, "vorticity.nc")
+filename_vort = string(outdir, "vorticity.nc");
 simulation.output_writers[:vorticity] = NetCDFOutputWriter(
     model, vorticity, overwrite_existing = true,
     filename = filename_vort,
     indices = (:, :, :),
     schedule = TimeInterval(1hour)
-)
+);
 
-filename_b = string(outdir, "buoyancy.nc")
+filename_b = string(outdir, "buoyancy.nc");
 simulation.output_writers[:buoyancy] = NetCDFOutputWriter(
     model, model.tracers.b, overwrite_existing = true,
     filename = filename_b,
     schedule = TimeInterval(1hour)
-)
+);
 
-filename_particles = string(outdir, "particles.nc")
+filename_particles = string(outdir, "particles.nc");
 simulation.output_writers[:particles] = NetCDFOutputWriter(
     model, model.particles, overwrite_existing = true,
     filename = filename_particles,
     schedule = TimeInterval(1hour)
-)
+);
 
 # ========================= #
 #         Run Model         #

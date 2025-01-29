@@ -45,3 +45,6 @@ Project.toml
 *.slurm
 *.out
 *.err
+
+# Mac files
+.DS_Store
