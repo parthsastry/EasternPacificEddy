@@ -40,3 +40,8 @@ ModelOutput/
 
 # For now - ignore Project.toml file - easier when switching between cluster and local PC
 Project.toml
+
+# Cluster files
+*.slurm
+*.out
+*.err
