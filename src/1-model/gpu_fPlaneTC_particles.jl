@@ -377,12 +377,12 @@ simulation.output_writers[:velocity] = NetCDFOutputWriter(
 );
 
 vorticity = Dict(
-    "ζˣ" => @at((Center, Center, Center), ∂y(w)-∂z(v)),
-    "ζʸ" => @at((Center, Center, Center), ∂z(u)-∂x(w)),
-    "ζᶻ" => @at((Center, Center, Center), ∂x(v)-∂y(u)),
-    "(ζ.∇b)ˣ" => @at((Center, Center, Center), ∂x(b)*∂y(w) - ∂x(b)*∂z(v)),
-    "(ζ.∇b)ʸ" => @at((Center, Center, Center), ∂y(b)*∂z(u) - ∂y(b)*∂x(w)),
-    "(ζ.∇b)ᶻ" => @at((Center, Center, Center), ∂z(b)*∂x(v) - ∂z(b)*∂y(u))
+    "zeta_x" => @at((Center, Center, Center), ∂y(w)-∂z(v)),
+    "zeta_y" => @at((Center, Center, Center), ∂z(u)-∂x(w)),
+    "zeta_z" => @at((Center, Center, Center), ∂x(v)-∂y(u)),
+    "PV_x" => @at((Center, Center, Center), ∂x(b)*∂y(w) - ∂x(b)*∂z(v)),
+    "PV_y" => @at((Center, Center, Center), ∂y(b)*∂z(u) - ∂y(b)*∂x(w)),
+    "PV_z" => @at((Center, Center, Center), ∂z(b)*∂x(v) - ∂z(b)*∂y(u))
 );
 
 filename_vort = string(outdir, "vorticity.nc");
