@@ -13,7 +13,7 @@ using LazyGrids
 using Printf
 using NCDatasets
 using Interpolations
-using MAT
+# using MAT
 using CUDA
 using Adapt
 
@@ -29,12 +29,13 @@ const Nx = 256; # x grid points
 const Ny = 256; # y grid points
 const Nz = 64;  # z grid points
 
-const L = 100kilometers; # Half-eddy length scale
-const H = 100meters;     # Half-eddy depth scale
+const L = 150kilometers; # Half-eddy length scale
+const H = 500meters;     # Half-eddy depth scale
 
-Lx = 10*L;      # zonal domain width
-Ly = 10*L;      # meridional domain width
-Lz = 10*H;      # vertical domain height
+# NOTE - WILL NEED TO INCREASE FOR PROD RUNS
+const Lx = 15*L;      # zonal domain width
+const Ly = 15*L;      # meridional domain width
+const Lz = 7.5*H;      # vertical domain height
 
 # =============================== #
 #           Grid Setup            #
@@ -57,7 +58,7 @@ yGrid = (-Ly/2, Ly/2);
 if sw_NonUniformGrid
     println("Using a non-uniform hyperbolically stretched z-grid")
     # Hyperbolically Stretched near surface
-    σ = 2.0; # stretching parameter
+    σ = 2.5; # stretching parameter
     hyperbolically_spaced_faces(k) = - Lz * (1 - tanh(σ * (k - 1) / Nz) / tanh(σ));
     zGrid = hyperbolically_spaced_faces;
 else
@@ -88,7 +89,7 @@ Zp = CUDA.ones(Nx, Ny, Nz).*reshape(zᶜ, (1, 1, Nz));
 # =============================== #
 
 const α = 2.0;                     # Eddy decay exponent (\alpha = 2 => Gaussian)
-const η = 0.18meters;              # Eddy amplitude at center (roughly maximum possible for non-negative buoyancy)
+const η = 0.2meters;              # Eddy amplitude at center (roughly maximum possible for non-negative buoyancy)
 
 const g = 9.807meters/second^2;     # gravity
 const ρ₀ = 1020.5;                 # kg m⁻³ reference surface density - taken from CTD data
@@ -128,21 +129,20 @@ W = CUDA.zeros(Nx, Ny, Nz);
 #    Background Buoyancy/Stratification Field     #
 # =============================================== #
 
-file = matread("../../data/processed/smoothed_N2_bouyancy.mat");
+param_ds = Dataset("../../data/processed/analyticalB_params.nc");
+analyticalB_fitParams = param_ds["params"];
 
-Z_bkg = range(-1000.0, stop=0, step=1.0);
-N²_bkg = reverse(vec(file["N2"]));
-b_bkg = reverse(vec(file["buoyancy"]));
+cutoff = analyticalB_fitParams[2,4];
+a_tanh, b_tanh, c_tanh, d_tanh = (analyticalB_fitParams[1,i] for i in 1:4);
+a_log, b_log = (analyticalB_fitParams[2,i] for i in 1:2);
 
-# Bottom N² boundary condition
-bottom_N² = @CUDA.allowscalar(N²_bkg[1]);
+analyticalB_bkg_tanh = (Zp .>= cutoff) .* (a_tanh .* tanh.(b_tanh .* (Zp .+ c_tanh)) .+ d_tanh);
+analyticalB_bkg_log = (Zp .< cutoff) .* (a_log .* log.(-Zp) .+ b_log);
+analyticalB_bkg = analyticalB_bkg_tanh .+ analyticalB_bkg_log;
 
-# Interpolate background buoyancy to grid
-b_itp = linear_interpolation(Z_bkg, b_bkg);
-b_cuitp = adapt(CuArray{Float64}, b_itp);
-b_bkg = b_cuitp.(Zp);
+bottom_N² = @CUDA.allowscalar(a_log / (-Zp[1,1,1]));
 
-b_tot = b_anom .+ b_bkg;
+b_tot = b_anom .+ analyticalB_bkg;
 
 # ================================ #
 #       Boundary Conditions        #
@@ -242,19 +242,21 @@ closure = (
 const tau = 5minutes;
 const damp_rate = 1/tau;
 
-const Lr_sponge = 300.5kilometers;  # sponge layer radial distance
-const Lz_sponge = 850meters;        # sponge layer depth
+# NOTE - WILL NEED TO CHANGE ONCE DOMAIN INCREASED
+const Lr_sponge = 0.4*Lx;           # sponge layer radial distance
+const Lz_sponge = 0.8*Lz;           # sponge layer depth
 
-const Rwidth_sponge = 7kilometers;  # sponge layer radial width
-const Zwidth_sponge = 10meters;     # sponge layer z width
+const Rwidth_sponge = 0.01*Lx;      # sponge layer radial width
+const Zwidth_sponge = 0.01*Lz;      # sponge layer z width
 
-@inline mask_2D(x, y, z) = 0.5 .* (tanh.((sqrt.(x.^2 + y.^2) .+ Lr_sponge) ./ Rwidth_sponge) .- tanh.((sqrt.(x.^2 + y.^2) .- Lr_sponge) ./ Rwidth_sponge))
-@inline mask_Z(x, y, z) = 0.5 .* (tanh.((z .+ Lz_sponge) ./ Zwidth_sponge) .- tanh.((z .- Lz_sponge) ./ Zwidth_sponge))
-@inline mask_net(x, y, z) = 1 - mask_2D(x, y, z) .* mask_Z(x, y, z)
+@inline mask_2D(x, y, z) = 0.5 .* (tanh.((sqrt.(x.^2 + y.^2) .+ Lr_sponge) ./ Rwidth_sponge) .- tanh.((sqrt.(x.^2 + y.^2) .- Lr_sponge) ./ Rwidth_sponge));
+@inline mask_Z(x, y, z) = 0.5 .* (tanh.((z .+ Lz_sponge) ./ Zwidth_sponge) .- tanh.((z .- Lz_sponge) ./ Zwidth_sponge));
+@inline mask_net(x, y, z) = 1 - mask_2D(x, y, z) .* mask_Z(x, y, z);
 
-const target_O2 = 0.0;                     # mmol m⁻³
-const target_uvw = 0.0;                    # m s⁻¹
-@inline target_b(x, y, z, t) = b_interp.(z) # target buoyancy
+# NOTE - CHANGE ONCE TRACER IMPLEMENTATION COMPLETE
+const target_O2 = 0.0;                          # mmol m⁻³
+const target_uvw = 0.0;                         # m s⁻¹
+@inline target_b(x, y, z, t) = (z .>= cutoff) .* (a_tanh .* tanh.(b_tanh .* (z .+ c_tanh)) .+ d_tanh) .+ (z .< cutoff) .* (a_log .* log.(-z) .+ b_log);
 
 uvw_sponge = Relaxation(
     rate = damp_rate,
@@ -276,11 +278,11 @@ O2_sponge = Relaxation(
 #       Lagrangian Particles       #
 # ================================ #
 
-N₀ = 11; # number of particles
+N₀ = 21; # number of particles
 
 x₀ = CUDA.ones(Float64, N₀) .* 100kilometers;
 y₀ = CUDA.zeros(Float64, N₀);
-z₀ = [125.0:10.0:225.0;];
+z₀ = [125.0:5.0:225.0;];
 
 lagrangian_particles = LagrangianParticles(x=x₀, y=y₀, z=z₀);
 
@@ -310,11 +312,11 @@ u, v, w = model.velocities;
 b = model.tracers.b;
 O2 = model.tracers.O2;
 
-const epsilon = 0.001;
+const epsilon = 0.01;
 u_perturbation = epsilon .* CUDA.randn(size(u)...) .* U;
 v_perturbation = epsilon .* CUDA.randn(size(v)...) .* V;
 w_perturbation = Lz/Lx .* epsilon .* CUDA.randn(size(w)...);
-b_perturbation = epsilon .* CUDA.randn(size(b)...);
+b_perturbation = epsilon .* CUDA.randn(size(b)...) .* b_tot;
 #O2_perturbation = epsilon .* randn(size(O2)...)
 
 println("Velocity array sizes - U: ", size(u), " V: ", size(v), " W: ", size(w))
@@ -376,13 +378,10 @@ simulation.output_writers[:velocity] = NetCDFOutputWriter(
     schedule = TimeInterval(1hour)
 );
 
+# QG PV - major contribution only from z dot product)
 vorticity = Dict(
-    "zeta_x" => @at((Center, Center, Center), ∂y(w)-∂z(v)),
-    "zeta_y" => @at((Center, Center, Center), ∂z(u)-∂x(w)),
-    "zeta_z" => @at((Center, Center, Center), ∂x(v)-∂y(u)),
-    "PV_x" => @at((Center, Center, Center), ∂x(b)*∂y(w) - ∂x(b)*∂z(v)),
-    "PV_y" => @at((Center, Center, Center), ∂y(b)*∂z(u) - ∂y(b)*∂x(w)),
-    "PV_z" => @at((Center, Center, Center), ∂z(b)*∂x(v) - ∂z(b)*∂y(u))
+    "ζ" => @at((Center, Center, Center), ∂x(v)-∂y(u)),
+    "Q" => @at((Center, Center, Center), (∂x(v) - ∂y(u) + f₀) * (2.0 / f₀))
 );
 
 filename_vort = string(outdir, "vorticity.nc");
