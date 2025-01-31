@@ -143,8 +143,8 @@ const d_tanh = analyticalB_fitParams[1,4];
 const a_log = analyticalB_fitParams[2,1];
 const b_log = analyticalB_fitParams[2,2];
 
-analyticalB_bkg_tanh = (Zp .>= cutoff) .* (a_tanh .* tanh.(b_tanh .* (Zp .+ c_tanh)) .+ d_tanh);
-analyticalB_bkg_log = (Zp .< cutoff) .* (a_log .* log.(-Zp) .+ b_log);
+analyticalB_bkg_tanh = (Zp .>= analyticalCutoff) .* (a_tanh .* tanh.(b_tanh .* (Zp .+ c_tanh)) .+ d_tanh);
+analyticalB_bkg_log = (Zp .< analyticalCutoff) .* (a_log .* log.(-Zp) .+ b_log);
 analyticalB_bkg = analyticalB_bkg_tanh .+ analyticalB_bkg_log;
 
 bottom_N² = @CUDA.allowscalar(a_log / (-Zp[1,1,1]));
