@@ -89,7 +89,10 @@ Zp = CUDA.ones(Nx, Ny, Nz).*reshape(zᶜ, (1, 1, Nz));
 # =============================== #
 
 const α = 2.0;                     # Eddy decay exponent (\alpha = 2 => Gaussian)
-const η = 0.2meters;              # Eddy amplitude at center (roughly maximum possible for non-negative buoyancy)
+# Eddy amplitude at center (roughly maximum possible for non-negative center surface buoyancy)
+# NOTE - important parameter in determining strength of eddy - also important for stratification stability
+# N̄² - 2gη/H² > 0 for stable stratification in center
+const η = 0.2meters;
 
 const g = 9.807meters/second^2;     # gravity
 const ρ₀ = 1020.5;                 # kg m⁻³ reference surface density - taken from CTD data
@@ -132,9 +135,13 @@ W = CUDA.zeros(Nx, Ny, Nz);
 param_ds = Dataset("../../data/processed/analyticalB_params.nc");
 analyticalB_fitParams = param_ds["params"];
 
-cutoff = analyticalB_fitParams[2,4];
-a_tanh, b_tanh, c_tanh, d_tanh = (analyticalB_fitParams[1,i] for i in 1:4);
-a_log, b_log = (analyticalB_fitParams[2,i] for i in 1:2);
+const analyticalCutoff = analyticalB_fitParams[2,4];
+const a_tanh = analyticalB_fitParams[1,1];
+const b_tanh = analyticalB_fitParams[1,2];
+const c_tanh = analyticalB_fitParams[1,3];
+const d_tanh = analyticalB_fitParams[1,4];
+const a_log = analyticalB_fitParams[2,1];
+const b_log = analyticalB_fitParams[2,2];
 
 analyticalB_bkg_tanh = (Zp .>= cutoff) .* (a_tanh .* tanh.(b_tanh .* (Zp .+ c_tanh)) .+ d_tanh);
 analyticalB_bkg_log = (Zp .< cutoff) .* (a_log .* log.(-Zp) .+ b_log);
@@ -256,7 +263,7 @@ const Zwidth_sponge = 0.01*Lz;      # sponge layer z width
 # NOTE - CHANGE ONCE TRACER IMPLEMENTATION COMPLETE
 const target_O2 = 0.0;                          # mmol m⁻³
 const target_uvw = 0.0;                         # m s⁻¹
-@inline target_b(x, y, z, t) = (z .>= cutoff) .* (a_tanh .* tanh.(b_tanh .* (z .+ c_tanh)) .+ d_tanh) .+ (z .< cutoff) .* (a_log .* log.(-z) .+ b_log);
+@inline target_b(x, y, z, t) = (z .>= analyticalCutoff) .* (a_tanh .* tanh.(b_tanh .* (z .+ c_tanh)) .+ d_tanh) .+ (z .< analyticalCutoff) .* (a_log .* log.(-z) .+ b_log);
 
 uvw_sponge = Relaxation(
     rate = damp_rate,
@@ -280,9 +287,9 @@ O2_sponge = Relaxation(
 
 N₀ = 21; # number of particles
 
-x₀ = CUDA.ones(Float64, N₀) .* 100kilometers;
+x₀ = CUDA.ones(Float64, N₀) .* 125kilometers;
 y₀ = CUDA.zeros(Float64, N₀);
-z₀ = [125.0:5.0:225.0;];
+z₀ = CuArray(125.0:5.0:225.0);
 
 lagrangian_particles = LagrangianParticles(x=x₀, y=y₀, z=z₀);
 
@@ -344,9 +351,8 @@ simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10));
 
 # Progress messaging
 progress_message(sim) = @printf(
-    "Iteration: %04d, Simulation Time: %s, Simulation Δt: %s, max(|w|) = %.1e ms⁻¹, Wall Clock Time: %s\n",
-    iteration(sim), prettytime(sim), prettytime(sim.Δt),
-    maximum(abs.(sim.model.velocities.w)), prettytime(sim.run_wall_time)
+    "Iteration: % 6d, Simulation Time: % 1.3f, Simulation Δt: % 1.4f, Wall Clock Time: % 10s, Advective CFL: %.2e, Diffusive CFL: %.2e\n",
+    iteration(sim), time(sim), sim.Δt, prettytime(sim.run_wall_time), AdvectiveCFL(sim.Δt)(sim.model), DiffusiveCFL(sim.Δt)(sim.model)
 );
 simulation.callbacks[:progress] = Callback(progress_message, IterationInterval(60));
 
@@ -392,9 +398,13 @@ simulation.output_writers[:vorticity] = NetCDFOutputWriter(
     schedule = TimeInterval(1hour)
 );
 
+buoyancy = Dict(
+    "b" => b
+);
+
 filename_b = string(outdir, "buoyancy.nc");
 simulation.output_writers[:buoyancy] = NetCDFOutputWriter(
-    model, model.tracers.b, overwrite_existing = true,
+    model, buoyancy, overwrite_existing = true,
     filename = filename_b,
     schedule = TimeInterval(1hour)
 );
