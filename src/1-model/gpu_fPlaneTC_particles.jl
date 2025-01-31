@@ -343,7 +343,7 @@ set!(model; b = bᵢ, u = Uᵢ, v = Vᵢ, w = Wᵢ);
 
 simulation = Simulation(model, Δt = 10seconds, stop_time = 10days);
 wizard = TimeStepWizard(
-    cfl = 1.0,
+    cfl = 0.3,
     max_change = 1.2,
     max_Δt = 1minute
 );
