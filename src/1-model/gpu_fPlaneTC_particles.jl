@@ -322,7 +322,7 @@ O2 = model.tracers.O2;
 # ϵ parameter to control perturbation. Currently no perturbations
 # NOTE - this is problematic for the buoyancy field, because the anomaly is already much weaker
 # than the background buoyancy field. Need to make sure perturbations make sense. (talk to Prof. Tandon)
-const epsilon = 0.0;
+const epsilon = 0.0001;
 u_perturbation = epsilon .* CUDA.randn(size(u)...) .* U;
 v_perturbation = epsilon .* CUDA.randn(size(v)...) .* V;
 w_perturbation = Lz/Lx .* epsilon .* CUDA.randn(size(w)...);
@@ -363,7 +363,7 @@ simulation.callbacks[:progress] = Callback(progress_message, IterationInterval(6
 #      NetCDF Output        #
 # ========================= #
 
-outdir = "../../output/fPlane_LagrangianParticles/";
+outdir = "../../output/fPlane_LagrangianParticles_epsilon00001/";
 
 if ~isdir(outdir)
     mkdir(outdir);
