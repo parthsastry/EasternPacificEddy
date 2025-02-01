@@ -213,8 +213,8 @@ O2_BCS = FieldBoundaryConditions(
 
 const κₕ = 2.0;            # m² s⁻¹ horizontal diffusivity
 const νₕ = 2.0;            # m² s⁻¹ horizontal viscosity
-const κᵥ = δ * κₕ * 0.01;  # m² s⁻¹ vertical diffusivity
-const νᵥ = δ * νₕ * 0.01;  # m² s⁻¹ vertical viscosity
+const κᵥ = (1.0/δ) * κₕ * 0.01;  # m² s⁻¹ vertical diffusivity
+const νᵥ = (1.0/δ) * νₕ * 0.01;  # m² s⁻¹ vertical viscosity
 
 horizontal_diff_closure = HorizontalScalarDiffusivity(
     ν = νₕ,
