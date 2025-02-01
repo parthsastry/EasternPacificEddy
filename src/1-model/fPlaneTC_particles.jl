@@ -137,7 +137,7 @@ analyticalB_bkg_tanh = (Zp .>= cutoff) .* (a_tanh .* tanh.(b_tanh .* (Zp .+ c_ta
 analyticalB_bkg_log = (Zp .< cutoff) .* (a_log .* log.(-Zp) .+ b_log);
 analyticalB_bkg = analyticalB_bkg_tanh .+ analyticalB_bkg_log;
 
-bottom_N² = @CUDA.allowscalar(a_log / (-Zp[1,1,1]));
+bottom_N² = a_log / (-Zp[1,1,1]);
 
 b_tot = b_anom .+ analyticalB_bkg;
 
@@ -351,7 +351,7 @@ simulation.callbacks[:progress] = Callback(progress_message, IterationInterval(6
 #      NetCDF Output        #
 # ========================= #
 
-outdir = "../../output/gpu_fPlaneTC_particles/";
+outdir = "../../output/fPlane_LagrangianParticles/";
 
 if ~isdir(outdir)
     mkdir(outdir);

@@ -250,8 +250,8 @@ const tau = 5minutes;
 const damp_rate = 1/tau;
 
 # NOTE - WILL NEED TO CHANGE ONCE DOMAIN INCREASED
-const Lr_sponge = 0.4*Lx;           # sponge layer radial distance
-const Lz_sponge = 0.8*Lz;           # sponge layer depth
+const Lr_sponge = 0.45*Lx;           # sponge layer radial distance
+const Lz_sponge = 0.9*Lz;           # sponge layer depth
 
 const Rwidth_sponge = 0.01*Lx;      # sponge layer radial width
 const Zwidth_sponge = 0.01*Lz;      # sponge layer z width
@@ -289,7 +289,7 @@ N₀ = 21; # number of particles
 
 x₀ = CUDA.ones(Float64, N₀) .* 125kilometers;
 y₀ = CUDA.zeros(Float64, N₀);
-z₀ = CuArray(125.0:5.0:225.0);
+z₀ = CuArray(-125.0:-5.0:-225.0);
 
 lagrangian_particles = LagrangianParticles(x=x₀, y=y₀, z=z₀);
 
@@ -319,7 +319,10 @@ u, v, w = model.velocities;
 b = model.tracers.b;
 O2 = model.tracers.O2;
 
-const epsilon = 0.01;
+# ϵ parameter to control perturbation. Currently no perturbations
+# NOTE - this is problematic for the buoyancy field, because the anomaly is already much weaker
+# than the background buoyancy field. Need to make sure perturbations make sense. (talk to Prof. Tandon)
+const epsilon = 0.0;
 u_perturbation = epsilon .* CUDA.randn(size(u)...) .* U;
 v_perturbation = epsilon .* CUDA.randn(size(v)...) .* V;
 w_perturbation = Lz/Lx .* epsilon .* CUDA.randn(size(w)...);
@@ -351,8 +354,8 @@ simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10));
 
 # Progress messaging
 progress_message(sim) = @printf(
-    "Iteration: % 6d, Simulation Time: % 1.3f, Simulation Δt: % 1.4f, Wall Clock Time: % 10s, Advective CFL: %.2e, Diffusive CFL: %.2e\n",
-    iteration(sim), time(sim), sim.Δt, prettytime(sim.run_wall_time), AdvectiveCFL(sim.Δt)(sim.model), DiffusiveCFL(sim.Δt)(sim.model)
+    "Iteration: % 6d, Simulation Time: % 1.3f, Simulation Δt: % 1.4f, Wall Clock Time: % 10s, Advective CFL: %.2e\n",
+    iteration(sim), time(sim), sim.Δt, prettytime(sim.run_wall_time), AdvectiveCFL(sim.Δt)(sim.model)
 );
 simulation.callbacks[:progress] = Callback(progress_message, IterationInterval(60));
 
@@ -360,7 +363,7 @@ simulation.callbacks[:progress] = Callback(progress_message, IterationInterval(6
 #      NetCDF Output        #
 # ========================= #
 
-outdir = "../../output/gpu_fPlaneTC_particles/";
+outdir = "../../output/fPlane_LagrangianParticles/";
 
 if ~isdir(outdir)
     mkdir(outdir);
