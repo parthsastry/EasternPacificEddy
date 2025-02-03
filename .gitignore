@@ -27,8 +27,7 @@ docs/site/
 Manifest.toml
 **/*.mp4
 **/*.nc
-!analyticalB.nc
-!analyticalB_params.nc
+!buoyancyFitParams.nc
 .ipynb_checkpoints
 
 # Ignore Presentations/Papers/OldCode folders. Ignore Model Output folder (for now)

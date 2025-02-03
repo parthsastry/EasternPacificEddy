@@ -99,8 +99,8 @@ const ρ₀ = 1020.5;                 # kg m⁻³ reference surface density - ta
 
 const p₀ = ρ₀*g*η;                 # reference pressure
 
-coriolis = FPlane(latitude=15);
-const f₀ = coriolis.f;
+coriolis = coriolis = BetaPlane(rotation_rate=7.292116e-5, latitude=15, radius=6371kilometers);
+const f₀ = coriolis.f₀; # Coriolis parameter at 15°N
 
 # =============================== #
 #        Initial conditions       #
@@ -116,6 +116,7 @@ p = p₀ .* χ;                          # pressure field
 ϕ = angle.(Xp .+ im*Yp);              # azimuthal angle
 
 # Mahdinia vortex
+# NOTE - does form change now that we are on beta plane? (talk to Prof. Tandon)
 
 Vᵩ = f₀ .* Rnorm .* L ./ 2 .* (-1 .+ sqrt.(1 .- 4 .* α .* p ./(ρ₀ .* f₀.^2 .* L^2))); # azimuthal velocity
 b_anom = -α .* p .* Znorm.^α ./ (ρ₀ .* Zp); # buoyancy anomaly field
@@ -322,7 +323,7 @@ O2 = model.tracers.O2;
 # ϵ parameter to control perturbation. Currently no perturbations
 # NOTE - this is problematic for the buoyancy field, because the anomaly is already much weaker
 # than the background buoyancy field. Need to make sure perturbations make sense. (talk to Prof. Tandon)
-const epsilon = 0.0001;
+const epsilon = 0.0;
 u_perturbation = epsilon .* CUDA.randn(size(u)...) .* U;
 v_perturbation = epsilon .* CUDA.randn(size(v)...) .* V;
 w_perturbation = Lz/Lx .* epsilon .* CUDA.randn(size(w)...);
@@ -363,7 +364,7 @@ simulation.callbacks[:progress] = Callback(progress_message, IterationInterval(6
 #      NetCDF Output        #
 # ========================= #
 
-outdir = "../../output/fPlane_LagrangianParticles_epsilon00001/";
+outdir = "../../output/fPlane_LagrangianParticles/";
 
 if ~isdir(outdir)
     mkdir(outdir);
