@@ -49,3 +49,6 @@ Project.toml
 
 # Mac files
 .DS_Store
+
+# Ignore output to save space for now
+output/*

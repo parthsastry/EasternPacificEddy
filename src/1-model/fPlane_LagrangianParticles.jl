@@ -132,23 +132,24 @@ W = CUDA.zeros(Nx, Ny, Nz);
 param_ds = Dataset("../../data/processed/buoyancyFitParams.nc");
 fitParams = param_ds["__xarray_dataarray_variable__"];
 
-function 
+const a_tanh = fitParams[1,1]
+const b_tanh = fitParams[2,1]
+const c_tanh = fitParams[3,1]
+const d_tanh = fitParams[4,1]
+const a_log = fitParams[1,2]
+const b_log = fitParams[2,2]
+const c_log = fitParams[3,2]
+const cutoff = fitParams[4,2]
 
-const analyticalCutoff = analyticalB_fitParams[2,4];
-const a_tanh = analyticalB_fitParams[1,1];
-const b_tanh = analyticalB_fitParams[1,2];
-const c_tanh = analyticalB_fitParams[1,3];
-const d_tanh = analyticalB_fitParams[1,4];
-const a_log = analyticalB_fitParams[2,1];
-const b_log = analyticalB_fitParams[2,2];
+function bkgBuoyancy(x, y, z)
+    out = (z .< cutoff) .* (a_log .* log.(-(z .+ b_log)) .+ c_log) .+ (z .>= cutoff) .* (a_tanh .* tanh.(b_tanh .* (z .+ c_tanh)) .+ d_tanh)
+    out
+end
 
-analyticalB_bkg_tanh = (Zp .>= analyticalCutoff) .* (a_tanh .* tanh.(b_tanh .* (Zp .+ c_tanh)) .+ d_tanh);
-analyticalB_bkg_log = (Zp .< analyticalCutoff) .* (a_log .* log.(-Zp) .+ b_log);
-analyticalB_bkg = analyticalB_bkg_tanh .+ analyticalB_bkg_log;
+b_bkg = bkgBuoyancy(Xp, Yp, Zp);
+bot_N² = @CUDA.allowscalar(a_log / Zp[1,1,1])
 
-bottom_N² = @CUDA.allowscalar(a_log / (-Zp[1,1,1]));
-
-b_tot = b_anom .+ analyticalB_bkg;
+b_tot = b_anom .+ b_bkg;
 
 # ================================ #
 #       Boundary Conditions        #
@@ -175,7 +176,7 @@ const Bflux_tot = Bflux_heat + Bflux_evap;
 
 B_BCS = FieldBoundaryConditions(
     top = FluxBoundaryCondition(Bflux_tot),
-    bottom = GradientBoundaryCondition(bottom_N²)
+    bottom = GradientBoundaryCondition(bot_N²)
 );
 
 # Velocity
@@ -262,7 +263,7 @@ const Zwidth_sponge = 0.01*Lz;      # sponge layer z width
 # NOTE - CHANGE ONCE TRACER IMPLEMENTATION COMPLETE
 const target_O2 = 0.0;                          # mmol m⁻³
 const target_uvw = 0.0;                         # m s⁻¹
-@inline target_b(x, y, z, t) = (z .>= analyticalCutoff) .* (a_tanh .* tanh.(b_tanh .* (z .+ c_tanh)) .+ d_tanh) .+ (z .< analyticalCutoff) .* (a_log .* log.(-z) .+ b_log);
+@inline target_b(x, y, z, t) = bkgBuoyancy(x, y, z);
 
 uvw_sponge = Relaxation(
     rate = damp_rate,
@@ -354,7 +355,7 @@ simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10));
 # Progress messaging
 progress_message(sim) = @printf(
     "Iteration: % 6d, Simulation Time: % 1.3f, Simulation Δt: % 1.4f, Wall Clock Time: % 10s, Advective CFL: %.2e\n",
-    iteration(sim), time(sim), sim.Δt, prettytime(sim.run_wall_time), AdvectiveCFL(sim.Δt)(sim.model)
+    iteration(sim), prettytime(sim), prettytime(sim.Δt), prettytime(sim.run_wall_time), AdvectiveCFL(sim.Δt)(sim.model)
 );
 simulation.callbacks[:progress] = Callback(progress_message, IterationInterval(60));
 
@@ -421,5 +422,5 @@ simulation.output_writers[:particles] = NetCDFOutputWriter(
 # ========================= #
 #         Run Model         #
 # ========================= #
-
-run!(simulation)
+# NOTE - will have to call run!(simulation) after including this script
+# run!(simulation)

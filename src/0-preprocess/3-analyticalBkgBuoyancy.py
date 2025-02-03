@@ -11,7 +11,7 @@ import numpy as np
 from scipy.optimize import minimize
 import scipy.io as sio
 import matplotlib.pyplot as plt
-from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
+from matplotlib.ticker import MultipleLocator
 import xarray as xr
 
 
