@@ -52,3 +52,6 @@ Project.toml
 
 # Ignore output to save space for now
 output/*
+
+# Ignore figures created for debugging and testing
+testFigures/

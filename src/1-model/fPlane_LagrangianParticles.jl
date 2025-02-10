@@ -181,7 +181,7 @@ B_BCS = FieldBoundaryConditions(
 
 # Velocity
 
-const U₁₀ = 0.001meters/second;        # m s⁻² Wind Speed 10 meters above sea level
+const U₁₀ = 0.000meters/second;        # m s⁻² Wind Speed 10 meters above sea level
 const θwind = 270;                     # Wind (to) direction (degrees), Clockwise from 0ᵒ - True North
 const u₁₀ = U₁₀ * cosd(90 - θwind);    # zonal wind component
 const v₁₀ = U₁₀ * sind(90 - θwind);    # meridional wind component
@@ -331,8 +331,10 @@ b_perturbation = epsilon .* CUDA.randn(size(b)...) .* b_tot;
 
 println("Velocity array sizes - U: ", size(u), " V: ", size(v), " W: ", size(w))
 
-Uᵢ = U .+ u_perturbation;
-Vᵢ = V .+ v_perturbation;
+# Uᵢ = U .+ u_perturbation;
+Uᵢ = CUDA.zeros(size(u)) .+ u_perturbation;
+# Vᵢ = V .+ v_perturbation;
+Vᵢ = CUDA.zeros(size(v)) .+ v_perturbation;
 # NOTE - TODO - FIND OUT WHERE EXTRA DIMENSION IN w IS COMING FROM
 Wᵢ = 0.0 .+ w_perturbation;
 bᵢ = b_tot.+ b_perturbation;
@@ -344,20 +346,13 @@ set!(model; b = bᵢ, u = Uᵢ, v = Vᵢ, w = Wᵢ);
 #         Run Setup         #
 # ========================= #
 
-simulation = Simulation(model, Δt = 10seconds, stop_time = 10days);
+simulation = Simulation(model, Δt = 10seconds, stop_time = 100days);
 wizard = TimeStepWizard(
     cfl = 0.3,
     max_change = 1.2,
     max_Δt = 1minute
 );
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10));
-
-# Progress messaging
-progress_message(sim) = @printf(
-    "Iteration: % 6d, Simulation Time: % 1.3f, Simulation Δt: % 1.4f, Wall Clock Time: % 10s, Advective CFL: %.2e\n",
-    iteration(sim), prettytime(sim), prettytime(sim.Δt), prettytime(sim.run_wall_time), AdvectiveCFL(sim.Δt)(sim.model)
-);
-simulation.callbacks[:progress] = Callback(progress_message, IterationInterval(60));
 
 # ========================= #
 #      NetCDF Output        #
@@ -390,7 +385,7 @@ simulation.output_writers[:velocity] = NetCDFOutputWriter(
 # QG PV - major contribution only from z dot product)
 vorticity = Dict(
     "ζ" => @at((Center, Center, Center), ∂x(v)-∂y(u)),
-    "Q" => @at((Center, Center, Center), (∂x(v) - ∂y(u) + f₀) * (2.0 / f₀))
+    "Q" => @at((Center, Center, Center), ( (∂y(w) - ∂z(v) * ∂x(b) /(f₀ * ∂z(b))) + (∂z(u) - ∂x(w) * ∂y(b) /(f₀ * ∂z(b))) + (∂x(v) - ∂y(u) + f₀) * (1.0 / f₀) - 1.0))
 );
 
 filename_vort = string(outdir, "vorticity.nc");
@@ -401,13 +396,14 @@ simulation.output_writers[:vorticity] = NetCDFOutputWriter(
     schedule = TimeInterval(1hour)
 );
 
-buoyancy = Dict(
-    "b" => b
+buoyancy_stratification = Dict(
+    "b" => b,
+    "N²" => @at((Center, Center, Center), ∂z(b))
 );
 
 filename_b = string(outdir, "buoyancy.nc");
 simulation.output_writers[:buoyancy] = NetCDFOutputWriter(
-    model, buoyancy, overwrite_existing = true,
+    model, buoyancy_stratification, overwrite_existing = true,
     filename = filename_b,
     schedule = TimeInterval(1hour)
 );
@@ -418,6 +414,30 @@ simulation.output_writers[:particles] = NetCDFOutputWriter(
     filename = filename_particles,
     schedule = TimeInterval(1hour)
 );
+
+# ========================= #
+#    Progress Messaging     #
+# ========================= #
+
+using Printf
+
+function print_progress(simulation)
+    u, v, w = simulation.model.velocities
+
+    # Print a progress message
+    msg = @sprintf("i: %04d, t: %s, Δt: %s, umax = (%.1e, %.1e, %.1e) ms⁻¹, wall time: %s\n",
+                   iteration(simulation),
+                   prettytime(time(simulation)),
+                   prettytime(simulation.Δt),
+                   maximum(abs, u), maximum(abs, v), maximum(abs, w),
+                   prettytime(simulation.run_wall_time))
+
+    @info msg
+
+    return nothing
+end
+
+simulation.callbacks[:progress] = Callback(print_progress, TimeInterval(1hour))
 
 # ========================= #
 #         Run Model         #
