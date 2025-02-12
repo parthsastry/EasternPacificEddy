@@ -248,7 +248,7 @@ closure = (
 # ================================ #
 
 # damping timescale (taken from initial time step - τ = 20Δt)
-const tau = 5minutes;
+const tau = 100minutes;
 const damp_rate = 1/tau;
 
 # NOTE - WILL NEED TO CHANGE ONCE DOMAIN INCREASED
@@ -327,15 +327,15 @@ O2 = model.tracers.O2;
 # Talk to Prof. Tandon about how exactly to implement divergence free perturbation field
 # Maybe waves? Curl of some scalar field?
 
-const ϵ = 0.1;
-uₚ = ϵ .* CUDA.randn(size(u)...) .* U;
-vₚ = ϵ .* CUDA.randn(size(v)...) .* V;
+const epsilon = 0.1;
+uₚ = epsilon .* CUDA.randn(size(u)...) .* U;
+vₚ = epsilon .* CUDA.randn(size(v)...) .* V;
 wₚ = CUDA.zeros(size(w)...);
-#wₚ = Lz/Lx .* ϵ .* CUDA.randn(size(w)...);
+#wₚ = Lz/Lx .* epsilon .* CUDA.randn(size(w)...);
 bₚ = CUDA.zeros(size(b)...);
-#bₚ = ϵ .* CUDA.randn(size(b)...) .* b_tot;
+#bₚ = epsilon .* CUDA.randn(size(b)...) .* b_tot;
 O2ₚ = CUDA.zeros(size(O2)...);
-#O2ₚ = ϵ .* CUDA.randn(size(O2)...) .* O2;
+#O2ₚ = epsilon .* CUDA.randn(size(O2)...) .* O2;
 
 # println("Velocity array sizes - U: ", size(u), " V: ", size(v), " W: ", size(w))
 
@@ -345,8 +345,8 @@ Vᵢ = V .+ vₚ;
 # Vᵢ = CUDA.zeros(size(v)) .+ v_perturbation;
 # NOTE - TODO - FIND OUT WHERE EXTRA DIMENSION IN w IS COMING FROM
 Wᵢ = wₚ;
-bᵢ = b_tot.+ bₚ;
-O2ᵢ = O2 .+ O2ₚ
+bᵢ = b_tot; #.+ bₚ;
+#O2ᵢ = O2 .+ O2ₚ;
 
 set!(model; b = bᵢ, u = Uᵢ, v = Vᵢ, w = Wᵢ);
 
@@ -358,7 +358,7 @@ simulation = Simulation(model, Δt = 10seconds, stop_time = 100days);
 wizard = TimeStepWizard(
     cfl = 0.3,
     max_change = 1.2,
-    max_Δt = 1minute
+    max_Δt = 5minutes
 );
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10));
 
@@ -373,68 +373,46 @@ if ~isdir(outdir)
 end
 
 u, v, w = model.velocities;
-b = model.tracers.b;
-O2 = model.tracers.O2;
+b, O2 = model.tracers;
 
-velocity = Dict(
-    "u" => model.velocities.u,
-    "v" => model.velocities.v,
-    "w" => model.velocities.w
+extra_outputs = (;
+    u=@at((Center, Center, Center), u),
+    v=@at((Center, Center, Center), v),
+    w=@at((Center, Center, Center), w),
+    zeta=@at((Center, Center, Center), ∂x(v)-∂y(u)),
+    Q=@at((Center, Center, Center), ( (((∂y(w) - ∂z(v)) * ∂x(b)) / (f₀ * ∂z(b))) + (((∂z(u) - ∂x(w)) * ∂y(b)) / (f₀ * ∂z(b))) + ((∂x(v) - ∂y(u) + f₀) / f₀) - 1.0)),
+    N2=@at((Center, Center, Center), ∂z(b)),
+    gradB=@at((Center, Center, Center), sqrt(∂x(b)^2 + ∂y(b)^2)),
+)
+
+filename = string(outdir, "output.nc");
+simulation.output_writers[:fields] = NetCDFOutputWriter(
+    model, merge(model.tracers, extra_outputs),
+    overwrite_existing = true,
+    filename = filename,
+    schedule = TimeInterval(3hours)
 );
 
-filename_vel = string(outdir, "velocity.nc");
-simulation.output_writers[:velocity] = NetCDFOutputWriter(
-    model, velocity, overwrite_existing = true,
-    filename = filename_vel,
-    indices = (:, :, :),
-    schedule = TimeInterval(1hour)
-);
-
-# QG PV - major contribution only from z dot product)
-vorticity = Dict(
-    "ζ" => @at((Center, Center, Center), ∂x(v)-∂y(u)),
-    "Q" => @at((Center, Center, Center), ( (∂y(w) - ∂z(v) * ∂x(b) /(f₀ * ∂z(b))) + (∂z(u) - ∂x(w) * ∂y(b) /(f₀ * ∂z(b))) + (∂x(v) - ∂y(u) + f₀) * (1.0 / f₀) - 1.0))
-);
-
-filename_vort = string(outdir, "vorticity.nc");
-simulation.output_writers[:vorticity] = NetCDFOutputWriter(
-    model, vorticity, overwrite_existing = true,
-    filename = filename_vort,
-    indices = (:, :, :),
-    schedule = TimeInterval(1hour)
-);
-
-buoyancy_stratification = Dict(
-    "b" => b,
-    "N²" => @at((Center, Center, Center), ∂z(b))
-);
-
-filename_b = string(outdir, "buoyancy.nc");
-simulation.output_writers[:buoyancy] = NetCDFOutputWriter(
-    model, buoyancy_stratification, overwrite_existing = true,
-    filename = filename_b,
-    schedule = TimeInterval(1hour)
-);
-
-SSH(model) = interior(model.free_surface.η, :, :, model.grid.Nz+1);
+SSH(model) = interior(model.free_surface.η);
 SSH_output = Dict(
     "SSH" => SSH,
 );
 SSH_dims = Dict(
-    "SSH" => ("xC", "yC")
-);
+    "SSH" => ("xC", "yC"),
+)
+filename_SSH = string(outdir, "SSH.nc");
 simulation.output_writers[:SSH] = NetCDFOutputWriter(
     model, SSH_output, overwrite_existing = true,
-    filename = string(outdir, "SSH.nc"),
+    filename = filename_SSH,
     dimensions = SSH_dims,
-    schedule = TimeInterval(1hour)
+    schedule = TimeInterval(3hours)
 );
 
 filename_particles = string(outdir, "particles.nc");
 simulation.output_writers[:particles] = NetCDFOutputWriter(
     model, model.particles, overwrite_existing = true,
     filename = filename_particles,
-    schedule = TimeInterval(1hour)
+    schedule = TimeInterval(3hours)
 );
 
 # ========================= #
