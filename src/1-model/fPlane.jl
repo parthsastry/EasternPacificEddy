@@ -47,7 +47,6 @@ dz = Lz / Nz;   # vertical grid spacing
 δ = dx/dz;      # aspect ratio
 
 println("dx = ", string(dx), " m");
-println("δ = ", string(δ));
 
 xGrid = (-Lx/2, Lx/2);
 yGrid = (-Ly/2, Ly/2);
@@ -331,10 +330,10 @@ b_perturbation = epsilon .* CUDA.randn(size(b)...) .* b_tot;
 
 println("Velocity array sizes - U: ", size(u), " V: ", size(v), " W: ", size(w))
 
-# Uᵢ = U .+ u_perturbation;
-Uᵢ = CUDA.zeros(size(u)) .+ u_perturbation;
-# Vᵢ = V .+ v_perturbation;
-Vᵢ = CUDA.zeros(size(v)) .+ v_perturbation;
+Uᵢ = U .+ u_perturbation;
+# Uᵢ = CUDA.zeros(size(u)) .+ u_perturbation;
+Vᵢ = V .+ v_perturbation;
+# Vᵢ = CUDA.zeros(size(v)) .+ v_perturbation;
 # NOTE - TODO - FIND OUT WHERE EXTRA DIMENSION IN w IS COMING FROM
 Wᵢ = 0.0 .+ w_perturbation;
 bᵢ = b_tot.+ b_perturbation;
@@ -437,7 +436,7 @@ function print_progress(simulation)
     return nothing
 end
 
-simulation.callbacks[:progress] = Callback(print_progress, TimeInterval(1hour))
+simulation.callbacks[:progress] = Callback(print_progress, TimeInterval(1hour));
 
 # ========================= #
 #         Run Model         #
