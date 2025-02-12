@@ -9,7 +9,6 @@ using Measures
 using CairoMakie
 #using GibbsSeaWater # only necessary if using T and S for equation of state
 using Statistics
-using Printf
 using NCDatasets
 using CUDA
 using Adapt
@@ -328,7 +327,7 @@ O2 = model.tracers.O2;
 # Talk to Prof. Tandon about how exactly to implement divergence free perturbation field
 # Maybe waves? Curl of some scalar field?
 
-const ϵ = 0.01;
+const ϵ = 0.1;
 uₚ = ϵ .* CUDA.randn(size(u)...) .* U;
 vₚ = ϵ .* CUDA.randn(size(v)...) .* V;
 wₚ = CUDA.zeros(size(w)...);
@@ -338,7 +337,7 @@ bₚ = CUDA.zeros(size(b)...);
 O2ₚ = CUDA.zeros(size(O2)...);
 #O2ₚ = ϵ .* CUDA.randn(size(O2)...) .* O2;
 
-println("Velocity array sizes - U: ", size(u), " V: ", size(v), " W: ", size(w))
+# println("Velocity array sizes - U: ", size(u), " V: ", size(v), " W: ", size(w))
 
 Uᵢ = U .+ uₚ;
 # Uᵢ = CUDA.zeros(size(u)) .+ u_perturbation;
