@@ -382,7 +382,7 @@ extra_outputs = (;
     zeta=@at((Center, Center, Center), ∂x(v)-∂y(u)),
     Q=@at((Center, Center, Center), ( (((∂y(w) - ∂z(v)) * ∂x(b)) / (f₀ * ∂z(b))) + (((∂z(u) - ∂x(w)) * ∂y(b)) / (f₀ * ∂z(b))) + ((∂x(v) - ∂y(u) + f₀) / f₀) - 1.0)),
     N2=@at((Center, Center, Center), ∂z(b)),
-    gradB=@at((Center, Center, Center), sqrt(∂x(b)^2 + ∂y(b)^2)),
+    ∇b=@at((Center, Center, Center), sqrt(∂x(b)^2 + ∂y(b)^2)),
 )
 
 filename = string(outdir, "output.nc");
