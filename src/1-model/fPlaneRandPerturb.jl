@@ -340,9 +340,7 @@ O2ₚ = CUDA.zeros(size(O2)...);
 # println("Velocity array sizes - U: ", size(u), " V: ", size(v), " W: ", size(w))
 
 Uᵢ = U .+ uₚ;
-# Uᵢ = CUDA.zeros(size(u)) .+ u_perturbation;
 Vᵢ = V .+ vₚ;
-# Vᵢ = CUDA.zeros(size(v)) .+ v_perturbation;
 # NOTE - TODO - FIND OUT WHERE EXTRA DIMENSION IN w IS COMING FROM
 Wᵢ = wₚ;
 bᵢ = b_tot; #.+ bₚ;
@@ -374,15 +372,22 @@ end
 
 u, v, w = model.velocities;
 b, O2 = model.tracers;
+SSH = Field(model.free_surface.η);
+ζˣ = Field((∂y(w) - ∂z(v)));
+ζʸ = Field((∂z(u) - ∂x(w)));
+Qx = Field(((ζˣ * ∂x(b)) / (f₀ * ∂z(b))));
+Qy = Field(((ζʸ * ∂y(b)) / (f₀ * ∂z(b))));
+Qz = Field(((∂x(v) - ∂y(u) + f₀) / f₀));
+Q = Field(Qx + Qy + Qz - 1.0);
 
 extra_outputs = (;
     u=@at((Center, Center, Center), u),
     v=@at((Center, Center, Center), v),
     w=@at((Center, Center, Center), w),
     zeta=@at((Center, Center, Center), ∂x(v)-∂y(u)),
-    Q=@at((Center, Center, Center), ( (((∂y(w) - ∂z(v)) * ∂x(b)) / (f₀ * ∂z(b))) + (((∂z(u) - ∂x(w)) * ∂y(b)) / (f₀ * ∂z(b))) + ((∂x(v) - ∂y(u) + f₀) / f₀) - 1.0)),
-    N2=@at((Center, Center, Center), ∂z(b)),
+    Q=@at((Center, Center, Center), Q),
     ∇b=@at((Center, Center, Center), sqrt(∂x(b)^2 + ∂y(b)^2)),
+    SSH=@at((Center, Center, Nothing), SSH),
 )
 
 filename = string(outdir, "output.nc");
@@ -390,21 +395,6 @@ simulation.output_writers[:fields] = NetCDFOutputWriter(
     model, merge(model.tracers, extra_outputs),
     overwrite_existing = true,
     filename = filename,
-    schedule = TimeInterval(3hours)
-);
-
-SSH(model) = interior(model.free_surface.η);
-SSH_output = Dict(
-    "SSH" => SSH,
-);
-SSH_dims = Dict(
-    "SSH" => ("xC", "yC"),
-)
-filename_SSH = string(outdir, "SSH.nc");
-simulation.output_writers[:SSH] = NetCDFOutputWriter(
-    model, SSH_output, overwrite_existing = true,
-    filename = filename_SSH,
-    dimensions = SSH_dims,
     schedule = TimeInterval(3hours)
 );
 
