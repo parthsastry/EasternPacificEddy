@@ -6,14 +6,11 @@ Pkg.instantiate()
 using Oceananigans
 using Oceananigans.Units
 using Measures
-using CairoMakie
 #using GibbsSeaWater # only necessary if using T and S for equation of state
 using Statistics
 using LazyGrids
 using Printf
 using NCDatasets
-using Interpolations
-# using MAT
 using CUDA
 using Adapt
 

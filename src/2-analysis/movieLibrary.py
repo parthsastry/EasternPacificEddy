@@ -3,55 +3,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-import argparse
-import os
-
 from cmocean import cm
 
-parser = argparse.ArgumentParser(
-    prog='movies.py',
-    description=('Script to create movies of profiles and slices of' +
-                 ' relevant variables.')
-)
-parser.add_argument(
-    'output_dir',
-    type=str,
-    help='Directory containing NC files to be processed.'
-)
 
-args = parser.parse_args()
-output_dir = args.output_dir
-
-outputDataset = xr.open_dataset(
-    output_dir + "output.nc",
-    decode_timedelta=True
-)
-if os.path.exists(output_dir + "particles.nc"):
-    particleDataset = xr.open_dataset(
-        output_dir + "particles.nc",
-        decode_timedelta=True
-    )
-
-depth200 = outputDataset.sel(
-    zC=-200, method='nearest'
-).drop_dims(["zF", "yF", "xF"])
-profile = outputDataset.sel(
-    yC=0, method='nearest'
-).drop_dims(["zF", "yF", "xF"])
-
-
-def plotDepthPV():
+def plotDepthPV(depthSlice):
 
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_title(
-        rf'PV @ z = -200 m (t = {float(depth200.time[0])/(3600*1E9)} h)'
+        rf'PV @ z = -200 m (t = {float(depthSlice.time[0])/(3600*1E9)} h)'
     )
     ax.set_xlabel('x [km]')
     ax.set_ylabel('y [km]')
 
     cax = ax.pcolormesh(
-        depth200.xC/1000, depth200.yC/1000,
-        np.swapaxes(depth200.Q[0, :, :], 0, 1),
+        depthSlice.xC/1000, depthSlice.yC/1000,
+        np.swapaxes(depthSlice.Q[0, :, :], 0, 1),
         cmap=cm.balance
     )
     cbar = fig.colorbar(cax)
@@ -62,17 +28,17 @@ def plotDepthPV():
 
     def animate(i):
         ax.set_title(
-            rf'PV @ z = -200 m (t = {float(depth200.time[i])/(3600*1E9)} h)'
+            rf'PV @ z = -200 m (t = {float(depthSlice.time[i])/(3600*1E9)} h)'
         )
-        cax.set_array(np.swapaxes(depth200.Q[i, :, :], 0, 1))
+        cax.set_array(np.swapaxes(depthSlice.Q[i, :, :], 0, 1))
 
     anim = FuncAnimation(
-        fig, animate, interval=70, frames=len(depth200.time)
+        fig, animate, interval=70, frames=len(depthSlice.time)
     )
-    anim.save('depth200PV.gif')
+    anim.save('depthSlicePV.gif')
 
 
-def plotProfilepV():
+def plotProfilepV(profile):
 
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_title(
@@ -103,7 +69,7 @@ def plotProfilepV():
     anim.save('PVprofile.gif')
 
 
-if particleDataset:
+def plotParticleTraj(particleDataset):
     particleTrajs = [
         particleDataset.sel(particle_id=float(i)) for i in range(1, 22)
     ]
@@ -123,6 +89,7 @@ if particleDataset:
     # )
     ax.legend()
     plt.savefig('particleTraj.png')
+
 
 analyticalB_params = xr.open_dataset(
     "../../data/processed/buoyancyFitParams.nc"
@@ -146,12 +113,14 @@ def piecewise_deriv(x):
         return a_tanh*b_tanh*(1-np.tanh(b_tanh*(x + c_tanh))**2)
 
 
-buoyancyBackground = np.array([piecewise_func(z) for z in profile.zC])
-N2Background = np.array([piecewise_deriv(z) for z in profile.zC])
-buoyancyAnomaly = profile.b - buoyancyBackground[np.newaxis, ..., np.newaxis]
+def plotAnomalyProfile(profile):
 
+    buoyancyBackground = np.array([piecewise_func(z) for z in profile.zC])
+    # N2Background = np.array([piecewise_deriv(z) for z in profile.zC])
+    buoyancyAnomaly = profile.b - buoyancyBackground[
+        np.newaxis, ..., np.newaxis
+    ]
 
-def plotAnomalyProfile():
     fig, ax = plt.subplots()
     ax.set_title(
         f'Buoyancy Anomaly (t = {float(buoyancyAnomaly.time[0])/(3600*1E9)} h)'
