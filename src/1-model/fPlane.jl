@@ -180,12 +180,12 @@ B_BCS = FieldBoundaryConditions(
 
 # Velocity
 
-const U₁₀ = 0.000meters/second;        # m s⁻² Wind Speed 10 meters above sea level
+const U₁₀ = 10.0meters/second;        # m s⁻² Wind Speed 10 meters above sea level
 const θwind = 270;                     # Wind (to) direction (degrees), Clockwise from 0ᵒ - True North
 const u₁₀ = U₁₀ * cosd(90 - θwind);    # zonal wind component
 const v₁₀ = U₁₀ * sind(90 - θwind);    # meridional wind component
 
-const C_D = 2.5e-3;                    # Drag coefficient
+const C_D = 1.5e-3;                    # Drag coefficient
 const ρₐ = 1.225;                      # kg m⁻³ air density
 
 const τₓ = C_D * ρₐ * u₁₀ * abs(u₁₀);  # zonal wind stress
@@ -212,8 +212,8 @@ O2_BCS = FieldBoundaryConditions(
 
 const κₕ = 2.0;            # m² s⁻¹ horizontal diffusivity
 const νₕ = 2.0;            # m² s⁻¹ horizontal viscosity
-const κᵥ = (1.0/δ) * κₕ * 0.01;  # m² s⁻¹ vertical diffusivity
-const νᵥ = (1.0/δ) * νₕ * 0.01;  # m² s⁻¹ vertical viscosity
+const κᵥ = (1.0/δ) * κₕ * 0.001;  # m² s⁻¹ vertical diffusivity
+const νᵥ = (1.0/δ) * νₕ * 0.001;  # m² s⁻¹ vertical viscosity
 
 horizontal_diff_closure = HorizontalScalarDiffusivity(
     ν = νₕ,
@@ -349,7 +349,7 @@ simulation = Simulation(model, Δt = 10seconds, stop_time = 100days);
 wizard = TimeStepWizard(
     cfl = 0.3,
     max_change = 1.2,
-    max_Δt = 1minute
+    max_Δt = 5minutes
 );
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10));
 
@@ -357,61 +357,45 @@ simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10));
 #      NetCDF Output        #
 # ========================= #
 
-outdir = "../../output/fPlane_LagrangianParticles/";
+outdir = "../../output/fPlaneWindsPerturb/";
 
 if ~isdir(outdir)
     mkdir(outdir);
 end
 
 u, v, w = model.velocities;
-b = model.tracers.b;
-O2 = model.tracers.O2;
+b, O2 = model.tracers;
+SSH = Field(model.free_surface.η);
+ζˣ = Field((∂y(w) - ∂z(v)));
+ζʸ = Field((∂z(u) - ∂x(w)));
+Qx = Field(((ζˣ * ∂x(b)) / (f₀ * ∂z(b))));
+Qy = Field(((ζʸ * ∂y(b)) / (f₀ * ∂z(b))));
+Qz = Field(((∂x(v) - ∂y(u) + f₀) / f₀));
+Q = Field(Qx + Qy + Qz - 1.0);
 
-velocity = Dict(
-    "u" => model.velocities.u,
-    "v" => model.velocities.v,
-    "w" => model.velocities.w
-);
+extra_outputs = (;
+    u=@at((Center, Center, Center), u),
+    v=@at((Center, Center, Center), v),
+    w=@at((Center, Center, Center), w),
+    zeta=@at((Center, Center, Center), ∂x(v)-∂y(u)),
+    Q=@at((Center, Center, Center), Q),
+    ∇b=@at((Center, Center, Center), sqrt(∂x(b)^2 + ∂y(b)^2)),
+    SSH=@at((Center, Center, Nothing), SSH),
+)
 
-filename_vel = string(outdir, "velocity.nc");
-simulation.output_writers[:velocity] = NetCDFOutputWriter(
-    model, velocity, overwrite_existing = true,
-    filename = filename_vel,
-    indices = (:, :, :),
-    schedule = TimeInterval(1hour)
-);
-
-# QG PV - major contribution only from z dot product)
-vorticity = Dict(
-    "ζ" => @at((Center, Center, Center), ∂x(v)-∂y(u)),
-    "Q" => @at((Center, Center, Center), ( (∂y(w) - ∂z(v) * ∂x(b) /(f₀ * ∂z(b))) + (∂z(u) - ∂x(w) * ∂y(b) /(f₀ * ∂z(b))) + (∂x(v) - ∂y(u) + f₀) * (1.0 / f₀) - 1.0))
-);
-
-filename_vort = string(outdir, "vorticity.nc");
-simulation.output_writers[:vorticity] = NetCDFOutputWriter(
-    model, vorticity, overwrite_existing = true,
-    filename = filename_vort,
-    indices = (:, :, :),
-    schedule = TimeInterval(1hour)
-);
-
-buoyancy_stratification = Dict(
-    "b" => b,
-    "N²" => @at((Center, Center, Center), ∂z(b))
-);
-
-filename_b = string(outdir, "buoyancy.nc");
-simulation.output_writers[:buoyancy] = NetCDFOutputWriter(
-    model, buoyancy_stratification, overwrite_existing = true,
-    filename = filename_b,
-    schedule = TimeInterval(1hour)
+filename = string(outdir, "output.nc");
+simulation.output_writers[:fields] = NetCDFOutputWriter(
+    model, merge(model.tracers, extra_outputs),
+    overwrite_existing = true,
+    filename = filename,
+    schedule = TimeInterval(3hours)
 );
 
 filename_particles = string(outdir, "particles.nc");
 simulation.output_writers[:particles] = NetCDFOutputWriter(
     model, model.particles, overwrite_existing = true,
     filename = filename_particles,
-    schedule = TimeInterval(1hour)
+    schedule = TimeInterval(3hours)
 );
 
 # ========================= #
