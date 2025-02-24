@@ -119,7 +119,6 @@ Vˣ = -real.(Vᵩ .* sin.(ϕ));
 Vʸ = real.(Vᵩ .* cos.(ϕ));
 
 # Initialize velocity fields (can add background flow here if needed)
-
 U = copy(Vˣ);
 V = copy(Vʸ);
 W = CUDA.zeros(Nx, Ny, Nz);

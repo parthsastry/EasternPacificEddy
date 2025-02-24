@@ -9,7 +9,6 @@ using Measures
 using CairoMakie
 #using GibbsSeaWater # only necessary if using T and S for equation of state
 using Statistics
-using Printf
 using NCDatasets
 using CUDA
 using Adapt
@@ -116,12 +115,12 @@ p = p₀ .* χ;                          # pressure field
 Vᵩ = f₀ .* Rnorm .* L ./ 2 .* (-1 .+ sqrt.(1 .- 4 .* α .* p ./(ρ₀ .* f₀.^2 .* L^2))); # azimuthal velocity
 b_anom = -α .* p .* Znorm.^α ./ (ρ₀ .* Zp); # buoyancy anomaly field
 
-Vₓ = -real.(Vᵩ .* sin.(ϕ));
-Vᵧ = real.(Vᵩ .* cos.(ϕ))
+Vˣ = -real.(Vᵩ .* sin.(ϕ));
+Vʸ = real.(Vᵩ .* cos.(ϕ));
 
 # Initialize velocity fields (can add background flow here if needed)
-U = copy(Vₓ);
-V = copy(Vᵧ);
+U = copy(Vˣ);
+V = copy(Vʸ);
 W = CUDA.zeros(Nx, Ny, Nz);
 
 # =============================================== #
@@ -141,7 +140,10 @@ const c_log = fitParams[3,2]
 const cutoff = fitParams[4,2]
 
 function bkgBuoyancy(x, y, z)
-    out = (z .< cutoff) .* (a_log .* log.(-(z .+ b_log)) .+ c_log) .+ (z .>= cutoff) .* (a_tanh .* tanh.(b_tanh .* (z .+ c_tanh)) .+ d_tanh)
+    out = (
+        (z .< cutoff) .* (a_log .* log.(-(z .+ b_log)) .+ c_log) .+
+        (z .>= cutoff) .* (a_tanh .* tanh.(b_tanh .* (z .+ c_tanh)) .+ d_tanh)
+    )
     out
 end
 
@@ -245,7 +247,7 @@ closure = (
 # ================================ #
 
 # damping timescale (taken from initial time step - τ = 20Δt)
-const tau = 5minutes;
+const tau = 100minutes;
 const damp_rate = 1/tau;
 
 # NOTE - WILL NEED TO CHANGE ONCE DOMAIN INCREASED
@@ -318,26 +320,30 @@ u, v, w = model.velocities;
 b = model.tracers.b;
 O2 = model.tracers.O2;
 
-# ϵ parameter to control perturbation. Currently no perturbations
-# NOTE - this is problematic for the buoyancy field, because the anomaly is already much weaker
-# than the background buoyancy field. Need to make sure perturbations make sense. (talk to Prof. Tandon)
-const epsilon = 0.0;
-u_perturbation = epsilon .* CUDA.randn(size(u)...) .* U;
-v_perturbation = epsilon .* CUDA.randn(size(v)...) .* V;
-w_perturbation = Lz/Lx .* epsilon .* CUDA.randn(size(w)...);
-b_perturbation = epsilon .* CUDA.randn(size(b)...) .* b_tot;
-#O2_perturbation = epsilon .* randn(size(O2)...)
+# Perturbations (if needed)
+# NOTE - curent implmentation doesn't initialize divergence-free perturbations. Will need to 
+# brainstorm about how exactly to implement axisymmetric perturbations (or not? unsure)
+# Talk to Prof. Tandon about how exactly to implement divergence free perturbation field
+# Maybe waves? Curl of some scalar field?
 
-println("Velocity array sizes - U: ", size(u), " V: ", size(v), " W: ", size(w))
+const epsilon = 0.1;
+uₚ = epsilon .* CUDA.randn(size(u)...) .* U;
+vₚ = epsilon .* CUDA.randn(size(v)...) .* V;
+wₚ = CUDA.zeros(size(w)...);
+#wₚ = Lz/Lx .* epsilon .* CUDA.randn(size(w)...);
+bₚ = CUDA.zeros(size(b)...);
+#bₚ = epsilon .* CUDA.randn(size(b)...) .* b_tot;
+O2ₚ = CUDA.zeros(size(O2)...);
+#O2ₚ = epsilon .* CUDA.randn(size(O2)...) .* O2;
 
-Uᵢ = U .+ u_perturbation;
-# Uᵢ = CUDA.zeros(size(u)) .+ u_perturbation;
-Vᵢ = V .+ v_perturbation;
-# Vᵢ = CUDA.zeros(size(v)) .+ v_perturbation;
+# println("Velocity array sizes - U: ", size(u), " V: ", size(v), " W: ", size(w))
+
+Uᵢ = U .+ uₚ;
+Vᵢ = V .+ vₚ;
 # NOTE - TODO - FIND OUT WHERE EXTRA DIMENSION IN w IS COMING FROM
-Wᵢ = 0.0 .+ w_perturbation;
-bᵢ = b_tot.+ b_perturbation;
-#O2ᵢ = O2 .+ O2_perturbation
+Wᵢ = wₚ;
+bᵢ = b_tot; #.+ bₚ;
+#O2ᵢ = O2 .+ O2ₚ;
 
 set!(model; b = bᵢ, u = Uᵢ, v = Vᵢ, w = Wᵢ);
 
