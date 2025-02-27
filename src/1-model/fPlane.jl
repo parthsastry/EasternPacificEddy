@@ -221,10 +221,10 @@ if wind_type == "constant"
 
 elseif wind_type == "storm"
 
-    Tₕ = 5days;                 # high-wind duration
-    Tᵣ = 0.1days;               # ramp-up time
-    Tₗ = 10days;                # low-wind duration
-    Nₛ = 1;                     # number of storms
+    const Tₕ = 5days;                 # high-wind duration
+    const Tᵣ = 0.1days;               # ramp-up time
+    const Tₗ = 10days;                # low-wind duration
+    const Nₛ = 1;                     # number of storms
 
     # add-on wind profile for a single high and low-wind cycle
     @inline storm_profile(t) = ( (Upeak - Ubg) / 2.0 ) * (tanh( (t - Tₗ) / Tᵣ ) - tanh( (t - (Tₗ + Tₕ)) / Tᵣ ) );
