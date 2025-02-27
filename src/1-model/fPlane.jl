@@ -415,7 +415,7 @@ simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10));
 #      NetCDF Output        #
 # ========================= #
 
-outdir = "../../output/fPlaneWindsPerturb/";
+outdir = "../../output/fPlaneStormPerturb/";
 
 if ~isdir(outdir)
     mkdir(outdir);
