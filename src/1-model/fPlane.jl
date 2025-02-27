@@ -83,16 +83,16 @@ Zp = CUDA.ones(Nx, Ny, Nz).*reshape(zᶜ, (1, 1, Nz));
 #        Eddy parameters          #
 # =============================== #
 
-const α = 2.0;                     # Eddy decay exponent (\alpha = 2 => Gaussian)
+const p = 2.0;                     # Eddy decay exponent (p = 2 => Gaussian)
 # Eddy amplitude at center (roughly maximum possible for non-negative center surface buoyancy)
 # NOTE - important parameter in determining strength of eddy - also important for stratification stability
 # N̄² - 2gη/H² > 0 for stable stratification in center
 const η = 0.2meters;
 
-const g = 9.807meters/second^2;     # gravity
+const g = 9.807meters/second^2;    # gravity
 const ρ₀ = 1020.5;                 # kg m⁻³ reference surface density - taken from CTD data
 
-const p₀ = ρ₀*g*η;                 # reference pressure
+const P₀ = ρ₀*g*η;                 # reference pressure
 
 coriolis = FPlane(latitude=15);
 const f₀ = coriolis.f;
@@ -106,14 +106,14 @@ const Zscale = H;
 Znorm = Zp ./ Zscale;
 Rnorm = sqrt.(Xp.^2 + Yp.^2) ./ L;
 
-χ = exp.((-Rnorm.^α) .+ (-Znorm.^α)); # 3D Gaussian
-p = p₀ .* χ;                          # pressure field
+χ = exp.((-Rnorm.^p) .+ (-Znorm.^p)); # 3D Gaussian
+P = P₀ .* χ;                          # pressure field
 ϕ = angle.(Xp .+ im*Yp);              # azimuthal angle
 
 # Mahdinia vortex
 
-Vᵩ = f₀ .* Rnorm .* L ./ 2 .* (-1 .+ sqrt.(1 .- 4 .* α .* p ./(ρ₀ .* f₀.^2 .* L^2))); # azimuthal velocity
-b_anom = -α .* p .* Znorm.^α ./ (ρ₀ .* Zp); # buoyancy anomaly field
+Vᵩ = f₀ .* Rnorm .* L ./ 2 .* (-1 .+ sqrt.(1 .- 4 .* p .* P ./(ρ₀ .* f₀.^2 .* L^2))); # azimuthal velocity
+b_anom = -p .* P .* Znorm.^p ./ (ρ₀ .* Zp); # buoyancy anomaly field
 
 Vˣ = -real.(Vᵩ .* sin.(ϕ));
 Vʸ = real.(Vᵩ .* cos.(ϕ));
@@ -152,6 +152,15 @@ bot_N² = @CUDA.allowscalar(a_log / Zp[1,1,1])
 
 b_tot = b_anom .+ b_bkg;
 
+# ======================================= #
+#       Oxygen Tracer Initialization      #
+# ======================================= #
+
+# Test implementation. Exponential decay
+
+const O₂ₛ = 20.0; # μmol L⁻¹
+O₂ = O₂ₛ .* exp.(Zp ./ (Lz / 10.0));
+
 # ================================ #
 #       Boundary Conditions        #
 # ================================ #
@@ -180,25 +189,68 @@ B_BCS = FieldBoundaryConditions(
     bottom = GradientBoundaryCondition(bot_N²)
 );
 
-# Velocity
-
-const U₁₀ = 10.0meters/second;        # m s⁻² Wind Speed 10 meters above sea level
-const θwind = 270;                     # Wind (to) direction (degrees), Clockwise from 0ᵒ - True North
-const u₁₀ = U₁₀ * cosd(90 - θwind);    # zonal wind component
-const v₁₀ = U₁₀ * sind(90 - θwind);    # meridional wind component
+# Wind Stress - Flux Boundary Conditions on Velocity
 
 const C_D = 1.5e-3;                    # Drag coefficient
 const ρₐ = 1.225;                      # kg m⁻³ air density
 
-const τₓ = C_D * ρₐ * u₁₀ * abs(u₁₀);  # zonal wind stress
-const τᵧ = C_D * ρₐ * v₁₀ * abs(v₁₀);  # meridional wind stress
+const Upeak = 10.0meters/second;       # Peak wind speed
+const Ubg = 4.0meters/second;          # Background wind speed
+const θwind = 270;                     # Wind (to) direction (degrees), Clockwise from 0ᵒ - True North
 
-U_BCS = FieldBoundaryConditions(
-    top = FluxBoundaryCondition(τₓ/ρ₀)
-);
-V_BCS = FieldBoundaryConditions(
-    top = FluxBoundaryCondition(τᵧ/ρ₀)
-);
+# Direction cosines for wind vector
+const α = cosd(90 - θwind);
+const β = sind(90 - θwind);
+
+# wind type -  "constant" (default), "storm", "jet"
+wind_type = "storm";
+
+if wind_type == "constant"
+
+    u₁₀ = Upeak * α;
+    v₁₀ = Upeak * β;
+    τˣ = C_D * ρₐ * u₁₀ * abs(u₁₀);
+    τʸ = C_D * ρₐ * v₁₀ * abs(v₁₀);
+
+    U_BCS = FieldBoundaryConditions(
+        top = FluxBoundaryCondition(τˣ/ρ₀)
+    );
+    V_BCS = FieldBoundaryConditions(
+        top = FluxBoundaryCondition(τʸ/ρ₀)
+    );
+
+elseif wind_type == "storm"
+
+    Tₕ = 5days;                 # high-wind duration
+    Tᵣ = 0.1days;               # ramp-up time
+    Tₗ = 10days;                # low-wind duration
+    Nₛ = 1;                     # number of storms
+
+    # add-on wind profile for a single high and low-wind cycle
+    @inline storm_profile(t) = ( (Upeak - Ubg) / 2.0 ) * (tanh( (t - Tₗ) / Tᵣ ) - tanh( (t - (Tₗ + Tₕ)) / Tᵣ ) );
+    # total wind profile
+    @inline wind_profile(t) = Ubg + ((Nₛ * (Tₕ + Tₗ) - t) > 0) * (storm_profile(rem(t, Tₕ + Tₗ)));
+    @inline wind_stress_x(x, y, t) = (C_D * ρₐ * (wind_profile(t))^2 * α) / ρ₀;
+    @inline wind_stress_y(x, y, t) = (C_D * ρₐ * (wind_profile(t))^2 * β) / ρ₀;
+
+    U_BCS = FieldBoundaryConditions(
+        top = FluxBoundaryCondition(wind_stress_x)
+    );
+    V_BCS = FieldBoundaryConditions(
+        top = FluxBoundaryCondition(wind_stress_y)
+    );
+
+elseif windtype == "jet"
+
+    # Placeholder. Will implement gaussian jet profile later.
+    U_BCS = FieldBoundaryConditions(
+        top = FluxBoundaryCondition(0.0)
+    );
+    V_BCS = FieldBoundaryConditions(
+        top = FluxBoundaryCondition(0.0)
+    );
+
+end
 
 # Oxygen Tracer Boundary Conditions (future implementation could involve steady subsurface oxygen supply)
 
@@ -343,9 +395,9 @@ Vᵢ = V .+ vₚ;
 # NOTE - TODO - FIND OUT WHERE EXTRA DIMENSION IN w IS COMING FROM
 Wᵢ = wₚ;
 bᵢ = b_tot; #.+ bₚ;
-#O2ᵢ = O2 .+ O2ₚ;
+O2ᵢ = O₂ .+ O2ₚ;
 
-set!(model; b = bᵢ, u = Uᵢ, v = Vᵢ, w = Wᵢ);
+set!(model; b = bᵢ, u = Uᵢ, v = Vᵢ, w = Wᵢ, O2 = O2ᵢ);
 
 # ========================= #
 #         Run Setup         #
