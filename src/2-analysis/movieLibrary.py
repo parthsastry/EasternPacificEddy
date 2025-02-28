@@ -6,11 +6,12 @@ from matplotlib.animation import FuncAnimation
 from cmocean import cm
 
 
-def plotDepthPV(depthSlice, outdir):
+def plotSlicePV(depthSlice, outdir):
 
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_title(
-        rf'PV @ z = -200 m (t = {float(depthSlice.time[0])/(3600*1E9)} h)'
+        rf'PV @ z = {round(float(depthSlice.zC), 2)} m' +
+        rf'(t = {float(depthSlice.time[0])/(3600*1E9)} h)'
     )
     ax.set_xlabel('x [km]')
     ax.set_ylabel('y [km]')
@@ -28,17 +29,57 @@ def plotDepthPV(depthSlice, outdir):
 
     def animate(i):
         ax.set_title(
-            rf'PV @ z = -200 m (t = {float(depthSlice.time[i])/(3600*1E9)} h)'
+            rf'PV @ z = {round(float(depthSlice.zC), 2)} m' +
+            rf'(t = {float(depthSlice.time[i])/(3600*1E9)} h)'
         )
         cax.set_array(np.swapaxes(depthSlice.Q[i, :, :], 0, 1))
 
     anim = FuncAnimation(
         fig, animate, interval=70, frames=len(depthSlice.time)
     )
-    anim.save(outdir + 'depthSlicePV.gif')
+    anim.save(
+        outdir + 'depthSlice_' +
+        f'{round(float(depthSlice.zC), 2)}' + '_PV.gif'
+    )
 
 
-def plotProfilepV(profile, outdir):
+def plotSliceBuoyancy(depthSlice, outdir):
+
+    fig, ax = plt.subplots(figsize=(12, 10))
+    ax.set_title(
+        rf'Buoyancy @ z = {round(float(depthSlice.zC), 2)} m' +
+        rf'(t = {float(depthSlice.time[0])/(3600*1E9)} h)'
+    )
+    ax.set_xlabel('x [km]')
+    ax.set_ylabel('y [km]')
+
+    cax = ax.pcolormesh(
+        depthSlice.xC/1000, depthSlice.yC/1000,
+        np.swapaxes(depthSlice.b[0, :, :], 0, 1),
+        cmap=cm.balance
+    )
+    cbar = fig.colorbar(cax)
+    cbar.set_label(
+        r'$b = -g \frac{\rho}{\rho_0}$'
+    )
+
+    def animate(i):
+        ax.set_title(
+            rf'Buoyancy @ z = {round(float(depthSlice.zC), 2)} m' +
+            rf'(t = {float(depthSlice.time[i])/(3600*1E9)} h)'
+        )
+        cax.set_array(np.swapaxes(depthSlice.b[i, :, :], 0, 1))
+
+    anim = FuncAnimation(
+        fig, animate, interval=70, frames=len(depthSlice.time)
+    )
+    anim.save(
+        outdir + 'depthSlice_' +
+        f'{round(float(depthSlice.zC), 2)}' + '_b.gif'
+    )
+
+
+def plotProfilePV(profile, outdir):
 
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_title(
