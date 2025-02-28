@@ -224,7 +224,7 @@ elseif wind_type == "storm"
     const Tₕ = 5days;                 # high-wind duration
     const Tᵣ = 0.1days;               # ramp-up time
     const Tₗ = 10days;                # low-wind duration
-    const Nₛ = 1;                     # number of storms
+    const Nₛ = 3;                     # number of storms
 
     # add-on wind profile for a single high and low-wind cycle
     @inline storm_profile(t) = ( (Upeak - Ubg) / 2.0 ) * (tanh( (t - Tₗ) / Tᵣ ) - tanh( (t - (Tₗ + Tₕ)) / Tᵣ ) );
@@ -403,7 +403,7 @@ set!(model; b = bᵢ, u = Uᵢ, v = Vᵢ, w = Wᵢ, O2 = O2ᵢ);
 #         Run Setup         #
 # ========================= #
 
-simulation = Simulation(model, Δt = 10seconds, stop_time = 100days);
+simulation = Simulation(model, Δt = 10seconds, stop_time = 60days);
 wizard = TimeStepWizard(
     cfl = 0.3,
     max_change = 1.2,
@@ -415,7 +415,7 @@ simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10));
 #      NetCDF Output        #
 # ========================= #
 
-outdir = "../../output/fPlaneStormPerturb/";
+outdir = "../../output/fPlaneSeqStormPerturb/";
 
 if ~isdir(outdir)
     mkdir(outdir);

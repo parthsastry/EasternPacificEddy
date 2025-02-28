@@ -6,7 +6,7 @@ from matplotlib.animation import FuncAnimation
 from cmocean import cm
 
 
-def plotDepthPV(depthSlice):
+def plotDepthPV(depthSlice, outdir):
 
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_title(
@@ -35,10 +35,10 @@ def plotDepthPV(depthSlice):
     anim = FuncAnimation(
         fig, animate, interval=70, frames=len(depthSlice.time)
     )
-    anim.save('depthSlicePV.gif')
+    anim.save(outdir + 'depthSlicePV.gif')
 
 
-def plotProfilepV(profile):
+def plotProfilepV(profile, outdir):
 
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.set_title(
@@ -66,29 +66,29 @@ def plotProfilepV(profile):
     anim = FuncAnimation(
         fig, animate, interval=70, frames=len(profile.time)
     )
-    anim.save('PVprofile.gif')
+    anim.save(outdir + 'PVprofile.gif')
 
 
-def plotParticleTraj(particleDataset):
-    particleTrajs = [
-        particleDataset.sel(particle_id=float(i)) for i in range(1, 22)
-    ]
+def plotParticleTraj(particleDataset, outdir):
+    
+    for i in range(1, 22):
+        particleTraj = particleDataset.sel(particle_id=float(i))
+        fig, axs = plt.subplots(1, 2, figsize = (12,6))
 
-    fig = plt.figure(figsize=(10, 10))
-    ax = fig.add_subplot(111, projection='3d')
-    ax.set_xlabel('x [m]')
-    ax.set_ylabel('y [m]')
-    ax.set_zlabel('Depth [m]')
-    for i in range(21):
-        ax.plot(
-            particleTrajs[i].x, particleTrajs[i].y, particleTrajs[i].z,
-            marker='.', label=f'Particle {i}'
-        )
-    # ax.scatter(
-    #   particle1Traj.x, particle1Traj.y, particle1Traj.z, color='red'
-    # )
-    ax.legend()
-    plt.savefig('particleTraj.png')
+        axs[0].scatter(particleTraj.x/1E3, particleTraj.y/1E3, color='red')
+        axs[0].set_xlabel('x [km]')
+        axs[0].set_ylabel('y [km]')
+        axs[0].set_xlim(-150, 150)
+        axs[0].set_ylim(-150, 150)
+        axs[0].set_title(f'Horizontal Trajectory of Particle {int(i)}')
+
+        axs[1].scatter(particleTraj.x/1E3, particleTraj.z, color='green')
+        axs[1].set_xlabel('x [km]')
+        axs[1].set_ylabel('z [m]')
+        axs[1].set_xlim(-150, 150)
+        axs[1].set_title(f'Vertical Trajectory of Particle {int(i)}')
+
+        plt.savefig(outdir + f'particleTrajs/particle{int(i)}.png')
 
 
 analyticalB_params = xr.open_dataset(
@@ -113,7 +113,7 @@ def piecewise_deriv(x):
         return a_tanh*b_tanh*(1-np.tanh(b_tanh*(x + c_tanh))**2)
 
 
-def plotAnomalyProfile(profile):
+def plotAnomalyProfile(profile, outdir):
 
     buoyancyBackground = np.array([piecewise_func(z) for z in profile.zC])
     # N2Background = np.array([piecewise_deriv(z) for z in profile.zC])
@@ -145,4 +145,4 @@ def plotAnomalyProfile(profile):
     anim = FuncAnimation(
         fig, animate, interval=70, frames=len(profile.time)
     )
-    anim.save('buoyancyAnomaly.gif')
+    anim.save(outdir + 'buoyancyAnomaly.gif')
