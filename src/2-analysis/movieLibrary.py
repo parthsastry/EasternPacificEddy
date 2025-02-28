@@ -48,8 +48,7 @@ def plotProfilepV(profile, outdir):
     ax.set_ylabel('Depth [m]')
     cax = ax.pcolormesh(
         profile.xC[64:193]/1000, profile.zC[30:], profile.Q[0, 30:, 64:193],
-        cmap=cm.balance,
-        vmin=-0.26, vmax=0.1
+        cmap=cm.balance
     )
     cbar = fig.colorbar(cax)
     cbar.set_label(
@@ -70,10 +69,10 @@ def plotProfilepV(profile, outdir):
 
 
 def plotParticleTraj(particleDataset, outdir):
-    
+
     for i in range(1, 22):
         particleTraj = particleDataset.sel(particle_id=float(i))
-        fig, axs = plt.subplots(1, 2, figsize = (12,6))
+        fig, axs = plt.subplots(1, 2, figsize=(12, 6))
 
         axs[0].scatter(particleTraj.x/1E3, particleTraj.y/1E3, color='red')
         axs[0].set_xlabel('x [km]')
@@ -146,3 +145,33 @@ def plotAnomalyProfile(profile, outdir):
         fig, animate, interval=70, frames=len(profile.time)
     )
     anim.save(outdir + 'buoyancyAnomaly.gif')
+
+
+def plotOxygenProfile(profile, outdir):
+
+    oxygenProfile = profile.O2
+    fig, ax = plt.subplots()
+    ax.set_title(
+        'Oxygen Concentration Profile ' +
+        f'(t = {float(oxygenProfile.time[0])/(3600*1E9)} h)'
+    )
+    ax.set_xlabel('x [km]')
+    ax.set_ylabel('Depth [m]')
+    cax = ax.pcolormesh(
+        oxygenProfile.xC/1000, oxygenProfile.zC, oxygenProfile[0, :, :],
+        cmap=cm.balance
+    )
+    cbar = fig.colorbar(cax)
+    cbar.set_label(r'Oxygen Concentration')
+
+    def animate(i):
+        ax.set_title(
+            'Oxygen Concentration Profile ' +
+            f'(t = {float(oxygenProfile.time[i])/(3600*1E9)} h)'
+        )
+        cax.set_array(oxygenProfile[i, :, :])
+
+    anim = FuncAnimation(
+        fig, animate, interval=70, frames=len(profile.time)
+    )
+    anim.save(outdir + 'oxygenProfile.gif')
