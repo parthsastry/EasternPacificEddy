@@ -188,6 +188,45 @@ def plotAnomalyProfile(profile, outdir):
     anim.save(outdir + 'buoyancyAnomaly.gif')
 
 
+def plotAnomalySlice(depthSlice, outdir):
+
+    buoyancyBackground = piecewise_func(float(depthSlice.zC))
+    buoyancyAnomaly = depthSlice.b - buoyancyBackground
+
+    fig, ax = plt.subplots()
+    ax.set_title(
+        rf'Buoyancy Anomaly @ z = {round(float(depthSlice.zC), 2)} m' +
+        rf'(t = {float(buoyancyAnomaly.time[0])/(3600*1E9)} h)'
+    )
+    ax.set_xlabel('x [km]')
+    ax.set_ylabel('y [km]')
+
+    cax = ax.pcolormesh(
+        depthSlice.xC/1000, depthSlice.yC/1000,
+        np.swapaxes(buoyancyAnomaly[0, :, :], 0, 1),
+        cmap=cm.balance
+    )
+    cbar = fig.colorbar(cax)
+    cbar.set_label(
+        r'$b_{\text{a}} = -g \frac{\rho}{\rho_0} - b_{\text{bkg}}$'
+    )
+
+    def animate(i):
+        ax.set_title(
+            rf'Buoyancy Anomaly @ z = {round(float(depthSlice.zC), 2)} m' +
+            rf'(t = {float(buoyancyAnomaly.time[i])/(3600*1E9)} h)'
+        )
+        cax.set_array(np.swapaxes(buoyancyAnomaly.b[i, :, :], 0, 1))
+
+    anim = FuncAnimation(
+        fig, animate, interval=70, frames=len(depthSlice.time)
+    )
+    anim.save(
+        outdir + 'depthSlice_' +
+        f'{round(float(depthSlice.zC), 2)}' + '_banom.gif'
+    )
+
+
 def plotOxygenProfile(profile, outdir):
 
     oxygenProfile = profile.O2
