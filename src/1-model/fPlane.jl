@@ -157,9 +157,17 @@ b_tot = b_anom .+ b_bkg;
 # ======================================= #
 
 # Test implementation. Exponential decay
+# Added Gaussian blob of oxygen at subsurface
 
 const O₂ₛ = 20.0; # μmol L⁻¹
 O₂ = O₂ₛ .* exp.(Zp ./ (Lz / 10.0));
+
+χₒ = exp.(
+    -((Xp .- 0.75 .* L) ./ (0.1 .* L)).^p .+
+    -(Yp ./ (0.1 .* L)).^p .+
+    (-((Zp .+ 175.0) ./ (0.1 .* H)).^p)
+); # 3D Gaussian
+O₂_anom = 20.0 .* χₒ; # oxygen anomaly field
 
 # ================================ #
 #       Boundary Conditions        #
@@ -395,7 +403,7 @@ Vᵢ = V .+ vₚ;
 # NOTE - TODO - FIND OUT WHERE EXTRA DIMENSION IN w IS COMING FROM
 Wᵢ = wₚ;
 bᵢ = b_tot; #.+ bₚ;
-O2ᵢ = O₂ .+ O2ₚ;
+O2ᵢ = O₂ .+ O₂_anom .+ O2ₚ;
 
 set!(model; b = bᵢ, u = Uᵢ, v = Vᵢ, w = Wᵢ, O2 = O2ᵢ);
 
