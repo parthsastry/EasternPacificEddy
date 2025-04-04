@@ -163,11 +163,11 @@ const O₂ₛ = 20.0; # μmol L⁻¹
 O₂ = O₂ₛ .* exp.(Zp ./ (Lz / 10.0));
 
 χₒ = exp.(
-    -((Xp .- 0.75 .* L) ./ (0.1 .* L)).^p .+
+    (-((Xp .- 0.75 .* L) ./ (0.1 .* L)).^p) .+
     -(Yp ./ (0.1 .* L)).^p .+
     (-((Zp .+ 175.0) ./ (0.1 .* H)).^p)
 ); # 3D Gaussian
-O₂_anom = 20.0 .* χₒ; # oxygen anomaly field
+O2_anom = 20.0 .* χₒ; # oxygen anomaly field
 
 # ================================ #
 #       Boundary Conditions        #
@@ -322,7 +322,7 @@ const Zwidth_sponge = 0.01*Lz;      # sponge layer z width
 @inline mask_net(x, y, z) = 1 - mask_2D(x, y, z) .* mask_Z(x, y, z);
 
 # NOTE - CHANGE ONCE TRACER IMPLEMENTATION COMPLETE
-const target_O2 = 0.0;                          # mmol m⁻³
+@inline target_O2(x, y, z, t) = 20.0 .* exp.(z ./ (Lz / 10.0));                          # mmol m⁻³
 const target_uvw = 0.0;                         # m s⁻¹
 @inline target_b(x, y, z, t) = bkgBuoyancy(x, y, z);
 
@@ -393,7 +393,7 @@ wₚ = CUDA.zeros(size(w)...);
 #wₚ = Lz/Lx .* epsilon .* CUDA.randn(size(w)...);
 bₚ = CUDA.zeros(size(b)...);
 #bₚ = epsilon .* CUDA.randn(size(b)...) .* b_tot;
-O2ₚ = CUDA.zeros(size(O2)...);
+#O2ₚ = CUDA.zeros(size(O2)...);
 #O2ₚ = epsilon .* CUDA.randn(size(O2)...) .* O2;
 
 # println("Velocity array sizes - U: ", size(u), " V: ", size(v), " W: ", size(w))
@@ -403,7 +403,7 @@ Vᵢ = V .+ vₚ;
 # NOTE - TODO - FIND OUT WHERE EXTRA DIMENSION IN w IS COMING FROM
 Wᵢ = wₚ;
 bᵢ = b_tot; #.+ bₚ;
-O2ᵢ = O₂ .+ O₂_anom .+ O2ₚ;
+O2ᵢ = O₂ .+ O2_anom;# .+ O2ₚ;
 
 set!(model; b = bᵢ, u = Uᵢ, v = Vᵢ, w = Wᵢ, O2 = O2ᵢ);
 
@@ -423,7 +423,7 @@ simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10));
 #      NetCDF Output        #
 # ========================= #
 
-outdir = "../../output/fPlaneSeqStormPerturb/";
+outdir = "../../output/fPlaneSeqStormPerturb_subO2/";
 
 if ~isdir(outdir)
     mkdir(outdir);
